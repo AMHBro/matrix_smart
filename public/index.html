@@ -8,16 +8,7 @@
 </head>
 <body>
 
-<div id="auth-lockscreen">
-    <div class="lock-box">
-        <h3>🔒 حماية اتصال الشبكة المحلية</h3>
-        <p>يرجى إدخال رمز الأمان المعتمد للمكتب:</p>
-        <input type="password" id="input-token" placeholder="أدخل الرمز هنا (7788)" style="text-align:center; font-size:1.6rem; margin:1.2rem 0;">
-        <button class="btn-success" style="width:100%;" onclick="verifyDeviceLink()">تحقق وربط المنظومة</button>
-    </div>
-</div>
-
-<div class="container" id="app-container" style="display:none;">
+<div class="container" id="app-container">
     <header>
         <div class="brand-zone">
             <h2>نظام إدارة الجملة 📦</h2>
@@ -32,7 +23,7 @@
             <button class="tab-btn master-only" onclick="switchTab('payments-tab')">تسديد الزبائن</button>
             <button class="tab-btn master-only" onclick="switchTab('sup-payments-tab')">تسديدات الشركات</button>
             <button class="tab-btn master-only" onclick="switchTab('products-tab')">المنتجات</button>
-            <button class="tab-btn master-only" onclick="switchTab('suppliers-tab')">الشركات الموزعة</button>
+            <button class="tab-btn master-only" onclick="switchTab('suppliers-tab')">الشركات الموردة</button>
             <button class="tab-btn master-only" onclick="switchTab('reports-tab')">التقارير والأمان</button>
         </nav>
     </header>
@@ -77,7 +68,7 @@
     <section id="invoices-tab" class="tab-content" style="display:none;">
         <div class="action-bar">
             <h3>سجل فواتير البيع العام</h3>
-            <input type="text" id="search-invoice" placeholder="🔍 ابحث باسم العميل أو المحل واضغط انتر..." oninput="loadInvoices()">
+            <input type="text" id="search-invoice" placeholder="🔍 ابحث باسم العميل أو المحل..." oninput="loadInvoices()">
         </div>
         <table>
             <thead>
@@ -92,7 +83,7 @@
     <section id="payments-tab" class="tab-content" style="display:none;">
         <div class="main-grid">
             <div class="table-card">
-                <h3>إنشاء وصل تسديد من زبون (مقبوضات)</h3>
+                <h3>إنشاء وصل تسديد من زبون</h3>
                 <div style="margin-top:1rem; display:grid; gap:1rem;">
                     <input type="text" id="pay-client" placeholder="اسم المحل أو العميل...">
                     <input type="number" id="pay-amount" placeholder="المبلغ المستلم نقداً (د.ع)...">
@@ -113,9 +104,9 @@
     <section id="sup-payments-tab" class="tab-content" style="display:none;">
         <div class="main-grid">
             <div class="table-card">
-                <h3>إنشاء وصل تسديد مالي إلى شركة / موزّع (مدفوعات)</h3>
+                <h3>إنشاء وصل تسديد مالي إلى شركة / موزّع</h3>
                 <div style="margin-top:1rem; display:grid; gap:1rem;">
-                    <input type="text" id="sup-pay-name" list="suppliers-datalist" placeholder="اكتب أو اختر اسم الشركة...">
+                    <input type="text" id="sup-pay-name" list="suppliers-datalist" placeholder="اختر اسم الشركة...">
                     <input type="number" id="sup-pay-amount" placeholder="المبلغ المدفوع للشركة نقداً...">
                     <input type="text" id="sup-pay-notes" placeholder="ملاحظات الصرف...">
                     <button class="btn-primary" style="background:#6f459b;" onclick="submitSupplierPayment()">تسجيل حركة الدفع للشركة 🧾</button>
@@ -138,7 +129,7 @@
             <input type="number" id="prod-box" placeholder="سعر الكارتون">
             <input type="number" id="prod-piece" placeholder="سعر القطعة">
             <input type="number" id="prod-stock" placeholder="الكمية المتوفرة">
-            <button class="btn-primary" onclick="addProduct()">إضافة المنتج للمنظومة</button>
+            <button class="btn-primary" onclick="addProduct()">إضافة المنتج</button>
         </div>
         <table>
             <thead><tr><th>اسم المنتج</th><th>سعر الكارتون</th><th>سعر القطعة</th><th>المخزون الحالي</th></tr></thead>
@@ -167,40 +158,17 @@
             <div class="summary-card" style="flex:1;"><h4>صافي ديون السوق الحالية المطلوبة من العملاء</h4><p id="rep-debts" style="font-size:2rem; font-weight:bold; color:red;">0 د.ع</p></div>
         </div>
         <hr style="margin:2rem 0; border:1px solid var(--border-color);">
-        <h3>النسخ الاحتياطي الفوري الإضافي</h3>
-        <p style="margin-bottom:1rem; color:#555;">يقوم النظام بعمل نسخ احتياطي تلقائي عند كل حركة، ولكن يمكنك سحب نسخة يدوية إضافية مضافة كملف مستقل هنا في أي وقت:</p>
-        <button class="btn-primary" style="background:#2A2A2A;" onclick="triggerBackup()">أخذ نسخة احتياطية إضافية فوراً 🛡️</button>
+        <h3>حالة الأمان السحابي</h3>
+        <p style="margin-bottom:1rem; color:#555;">النظام محمي ومؤمن تلقائياً بالكامل عبر خوادم Supabase السحابية للبيانات.</p>
     </section>
 </div>
 
 <script>
-let savedToken = localStorage.getItem('device_net_token') || "";
 let currentRole = 'node';
 let globalProducts = [];
 
 function secureFetch(url, options = {}) {
-    if (!options.headers) options.headers = {};
-    options.headers['x-device-token'] = savedToken;
     return fetch(url, options);
-}
-
-async function verifyDeviceLink() {
-    const inputVal = document.getElementById('input-token').value;
-    const res = await fetch('/api/verify-token', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ token: inputVal })
-    });
-    const data = await res.json();
-    if(data.success) {
-        savedToken = inputVal;
-        localStorage.setItem('device_net_token', inputVal);
-        document.getElementById('auth-lockscreen').style.display = 'none';
-        document.getElementById('app-container').style.display = 'block';
-        initializeApp();
-    } else {
-        alert('⚠️ رمز حماية الراوتر غير صحيح!');
-    }
 }
 
 function initializeApp() {
@@ -220,7 +188,7 @@ function switchTab(tabId) {
     document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).style.display = 'block';
-    event.currentTarget.classList.add('active');
+    if(event && event.currentTarget) event.currentTarget.classList.add('active');
 
     if (tabId === 'invoices-tab') loadInvoices();
     if (tabId === 'products-tab') loadProducts();
@@ -421,14 +389,8 @@ async function loadReports() {
     document.getElementById('rep-debts').innerText = data.reports.totalDebts.toLocaleString() + " د.ع";
 }
 
-async function triggerBackup() { const res = await secureFetch('/api/backup'); const data = await res.json(); alert(data.message); }
-
 window.onload = () => {
-    if(savedToken) {
-        document.getElementById('auth-lockscreen').style.display = 'none';
-        document.getElementById('app-container').style.display = 'block';
-        initializeApp();
-    }
+    initializeApp();
 };
 </script>
 </body>

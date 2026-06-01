@@ -7,43 +7,31 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 🔐 إعدادات الاتصال بسحاب Supabase 
-// (استبدل هذه القيم بالروابط الخاصة بمشروعك الجديد من لوحة تحكم Supabase)
 const SUPABASE_URL = "https://your-project-id.supabase.co"; 
 const SUPABASE_ANON_KEY = "your-actual-anon-key-here"; 
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// 🔐 رمز الأمان الخاص لربط التابلت أو الهاتف عبر الراوتر المحلي
-const SECRET_TOKEN = "7788"; 
-
-// التحقق من صلاحية الأجهزة الملحقة برمز الراوتر
+// 🔓 تم إلغاء الحماية لفتح النظام مباشرة على Vercel
 function checkAuth(req, res, next) {
-    const deviceToken = req.headers['x-device-token'];
-    if (deviceToken === SECRET_TOKEN || req.ip === '::1' || req.ip === '127.0.0.1') {
-        return next();
-    }
-    res.status(401).json({ success: false, message: "⚠️ رمز حماية الراوتر غير صحيح أو غير مدخل!" });
+    return next(); // السماح بالمرور الفوري لجميع الأجهزة دون قيود
 }
 
 // --- الروابط البرمجية (APIs) المرتبطة بالسحاب ---
 
 app.post('/api/verify-token', (req, res) => {
-    if(req.body.token === SECRET_TOKEN) res.json({ success: true });
-    else res.json({ success: false });
+    res.json({ success: true });
 });
 
-// جلب المنتجات للبحث والأسعار التلقائية
 app.get('/api/products/search', checkAuth, async (req, res) => {
     const { data, error } = await supabase.from('products').select('*');
     res.json({ success: !error, data: data || [] });
 });
 
-// حفظ قوائم البيع في السحاب
 app.post('/api/invoices', checkAuth, async (req, res) => {
     const { client_name, total_amount, discount, final_amount, payment_type, notes, device_type, items } = req.body;
     const invoice_number = 'INV-' + Date.now().toString().slice(-5);
 
-    // 1. إدخال الفاتورة الرئيسية
     const { data: invData, error: invError } = await supabase
         .from('invoices')
         .insert([{ invoice_number, client_name, total_amount, discount, final_amount, payment_type, notes, device_type }])
@@ -52,8 +40,6 @@ app.post('/api/invoices', checkAuth, async (req, res) => {
     if (invError) return res.json({ success: false, message: "فشل حفظ الفاتورة في السحاب" });
 
     const invoiceId = invData[0].id;
-    
-    // 2. تجهيز وإدخال مواد الفاتورة
     const bulkItems = items.map(item => ({
         invoice_id: invoiceId, item_name: item.name, unit_type: item.unit, quantity: item.qty, price: item.price, row_total: item.total
     }));
@@ -64,11 +50,10 @@ app.post('/api/invoices', checkAuth, async (req, res) => {
     else res.json({ success: true, message: `تم إرسال وحفظ القائمة بنجاح برقم: ${invoice_number}` });
 });
 
-// تسديد ديون الزبائن
 app.post('/api/payments', checkAuth, async (req, res) => {
     const { client_name, amount_paid, notes } = req.body;
     const { error } = await supabase.from('debt_payments').insert([{ client_name, amount_paid, notes }]);
-    res.json({ success: !error, message: error ? 'فشل الحفظ' : 'تم تسجيل واصل تسديد الزبون بنجاح السحاب!' });
+    res.json({ success: !error, message: error ? 'فشل الحفظ' : 'تم تسجيل واصل تسديد الزبون بنجاح!' });
 });
 
 app.get('/api/payments', checkAuth, async (req, res) => {
@@ -76,20 +61,17 @@ app.get('/api/payments', checkAuth, async (req, res) => {
     res.json({ success: true, data: data || [] });
 });
 
-// تسديدات حسابات الشركات والموردين
 app.post('/api/supplier-payments', checkAuth, async (req, res) => {
     const { supplier_name, amount_paid, notes } = req.body;
-
     const { error: payError } = await supabase.from('supplier_payments').insert([{ supplier_name, amount_paid, notes }]);
     if (payError) return res.json({ success: false });
 
-    // جلب الحساب الحالي للشركة لتعديله
     const { data: supData } = await supabase.from('suppliers').select('current_debts').eq('name', supplier_name).single();
     if (supData) {
         const newDebt = Math.max(0, supData.current_debts - amount_paid);
         await supabase.from('suppliers').update({ current_debts: newDebt }).eq('name', supplier_name);
     }
-    res.json({ success: true, message: "تم تسجيل الحركة وخصم الحساب المتبقي للشركة سحابياً!" });
+    res.json({ success: true, message: "تم تسجيل الحركة وخصم الحساب المتبقي للشركة!" });
 });
 
 app.get('/api/supplier-payments', checkAuth, async (req, res) => {
@@ -97,7 +79,6 @@ app.get('/api/supplier-payments', checkAuth, async (req, res) => {
     res.json({ success: true, data: data || [] });
 });
 
-// جلب الفواتير والبحث
 app.get('/api/invoices', checkAuth, async (req, res) => {
     const search = req.query.search || '';
     let query = supabase.from('invoices').select('*').order('id', { ascending: false });
@@ -106,7 +87,6 @@ app.get('/api/invoices', checkAuth, async (req, res) => {
     res.json({ success: true, data: data || [] });
 });
 
-// تفاصيل الفاتورة للطباعة الحرارية
 app.get('/api/invoices/:id', checkAuth, async (req, res) => {
     const { data: invoice } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
     const { data: items } = await supabase.from('invoice_items').select('*').eq('invoice_id', req.params.id);
@@ -118,7 +98,6 @@ app.post('/api/invoices/print/:id', checkAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// المنتجات والمخزن
 app.get('/api/products', checkAuth, async (req, res) => {
     const { data } = await supabase.from('products').select('*');
     res.json({ data: data || [] });
@@ -129,7 +108,6 @@ app.post('/api/products', checkAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// الشركات
 app.get('/api/suppliers', checkAuth, async (req, res) => {
     const { data } = await supabase.from('suppliers').select('*');
     res.json({ data: data || [] });
@@ -140,24 +118,17 @@ app.post('/api/suppliers', checkAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// التقارير المالية الذكية
 app.get('/api/reports', checkAuth, async (req, res) => {
     const { data: invs } = await supabase.from('invoices').select('final_amount');
     const { data: pays } = await supabase.from('debt_payments').select('amount_paid');
-    
     const totalSales = invs?.reduce((sum, i) => sum + i.final_amount, 0) || 0;
     const totalReceipts = pays?.reduce((sum, p) => sum + p.amount_paid, 0) || 0;
-    
     res.json({ success: true, reports: { totalSales, totalDebts: Math.max(0, totalSales - totalReceipts) } });
 });
 
-// لغرض التوافقية مع زر الواجهة القديم
-app.get('/api/backup', (req, res) => res.json({ success: true, message: "🛡️ نظام السحاب مؤمن تلقائياً عبر سيرفرات Supabase العاليمة!" }));
+app.get('/api/backup', (req, res) => res.json({ success: true, message: "🛡️ نظام السحاب مؤمن تلقائياً!" }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`====================================================`);
-    console.log(`🚀 النظام يعمل بنجاح ومرتبط بالسحاب بالكامل!`);
-    console.log(`🔒 الرمز المطلوب لربط الأجهزة الملحقة بالراوتر: ${SECRET_TOKEN}`);
-    console.log(`====================================================`);
+    console.log(`🚀 السيرفر يعمل ومفتوح للجميع على منفذ: ${PORT}`);
 });
