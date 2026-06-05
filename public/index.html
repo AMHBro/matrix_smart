@@ -18,13 +18,14 @@
             </select>
         </div>
         <nav class="nav-tabs">
-            <button class="tab-btn active" onclick="switchTab('sale-tab')">قائمة بيع</button>
-            <button class="tab-btn master-only" onclick="switchTab('invoices-tab')">الفواتير العام</button>
-            <button class="tab-btn master-only" onclick="switchTab('payments-tab')">تسديد الزبائن</button>
-            <button class="tab-btn master-only" onclick="switchTab('sup-payments-tab')">تسديدات الشركات</button>
-            <button class="tab-btn master-only" onclick="switchTab('products-tab')">المنتجات</button>
-            <button class="tab-btn master-only" onclick="switchTab('suppliers-tab')">الشركات الموردة</button>
-            <button class="tab-btn master-only" onclick="switchTab('reports-tab')">التقارير والأمان</button>
+            <button class="tab-btn active" onclick="switchTab('sale-tab', event)">قائمة بيع</button>
+            <button class="tab-btn master-only" onclick="switchTab('invoices-tab', event)">الفواتير العام</button>
+            <button class="tab-btn master-only" onclick="switchTab('payments-tab', event)">تسديد الزبائن</button>
+            <button class="tab-btn master-only" onclick="switchTab('sup-payments-tab', event)">تسديدات الشركات</button>
+            <button class="tab-btn master-only" onclick="switchTab('products-tab', event)">المنتجات</button>
+            <button class="tab-btn master-only" onclick="switchTab('suppliers-tab', event)">الشركات الموردة</button>
+            <button class="tab-btn master-only" onclick="switchTab('reports-tab', event)">التقارير والأمان</button>
+            <button class="tab-btn master-only" onclick="switchTab('settings-tab', event)">الإعدادات والربط</button>
         </nav>
     </header>
 
@@ -49,18 +50,23 @@
             <div class="summary-card">
                 <h3>حساب الفاتورة</h3>
                 <label>اسم العميل / المحل:</label>
-                <input type="text" id="sale-client" placeholder="اسم المحل...">
+                <input type="text" id="sale-client" placeholder="اسم المحل..." onblur="loadSaleCustomerAccount()">
                 <div class="total-view" id="sale-total">0 د.ع</div>
+                <div class="account-grid">
+                    <div><span>السابق</span><strong id="sale-prev-balance">0 د.ع</strong></div>
+                    <div><span>واصل</span><strong id="sale-paid-amount">0 د.ع</strong></div>
+                    <div><span>الكلي</span><strong id="sale-grand-total">0 د.ع</strong></div>
+                </div>
                 <label>خصم القائمة:</label>
                 <input type="number" id="sale-discount" value="0" oninput="calculateSaleTotal()">
                 <label>حالة الحساب:</label>
-                <select id="sale-payment">
+                <select id="sale-payment" onchange="calculateSaleTotal()">
                     <option value="cash">نقدي (واصل كامل)</option>
                     <option value="debt">دين على الحساب</option>
                 </select>
                 <label>ملاحظات القائمة:</label>
                 <input type="text" id="sale-notes" placeholder="ملاحظات وتفاصيل التوصيل...">
-                <button class="btn-success" style="width:100%; margin-top:1.5rem; padding:1.2rem;" onclick="submitInvoice()">إرسال وحفظ الفاتورة 💾</button>
+                <button class="btn-success" style="width:100%; margin-top:1.5rem; padding:1.2rem;" onclick="submitInvoice()">طباعة وحفظ القائمة �️</button>
             </div>
         </div>
     </section>
@@ -69,11 +75,12 @@
         <div class="action-bar">
             <h3>سجل فواتير البيع العام</h3>
             <input type="text" id="search-invoice" placeholder="🔍 ابحث باسم العميل أو المحل..." oninput="loadInvoices()">
+            <button class="btn-success" onclick="switchTab('sale-tab')">فاتورة جديدة +</button>
         </div>
         <table>
             <thead>
                 <tr>
-                    <th>رقم الفاتورة</th><th>العميل</th><th>المبلغ الكلي</th><th>نوع الدفع</th><th>ملاحظات</th><th>الجهاز</th><th>أمر الطباعة</th>
+                    <th>رقم الفاتورة</th><th>العميل</th><th>المبلغ الكلي</th><th>نوع الدفع</th><th>التاريخ والوقت</th><th>ملاحظات</th><th>الجهاز</th><th>أمر الطباعة</th>
                 </tr>
             </thead>
             <tbody id="invoices-rows"></tbody>
@@ -89,15 +96,29 @@
                     <input type="number" id="pay-amount" placeholder="المبلغ المستلم نقداً (د.ع)...">
                     <input type="text" id="pay-notes" placeholder="ملاحظة التسديد...">
                     <button class="btn-success" onclick="submitPayment()">حفظ وصل القبض 💵</button>
+                    <button class="btn-secondary" onclick="loadCustomerStatement()">عرض بيان الزبون</button>
                 </div>
             </div>
             <div class="table-card">
                 <h3>آخر الديون المستلمة</h3>
                 <table>
-                    <thead><tr><th>العميل</th><th>المبلغ المستلم</th><th>الملاحظة</th></tr></thead>
+                    <thead><tr><th>العميل</th><th>المبلغ المستلم</th><th>التاريخ والوقت</th><th>الملاحظة</th><th>طباعة</th></tr></thead>
                     <tbody id="payments-rows"></tbody>
                 </table>
             </div>
+        </div>
+        <div class="table-card">
+            <h3>بيان جميع عمليات الزبون</h3>
+            <div class="account-grid">
+                <div><span>إجمالي الفواتير الدين</span><strong id="stmt-invoices">0 د.ع</strong></div>
+                <div><span>إجمالي الواصل</span><strong id="stmt-payments">0 د.ع</strong></div>
+                <div><span>المتبقي الكلي</span><strong id="stmt-balance">0 د.ع</strong></div>
+            </div>
+            <button class="btn-secondary" style="margin-top:1rem;" onclick="printCustomerStatement()">طباعة بيان الحساب 🖨️</button>
+            <table>
+                <thead><tr><th>النوع</th><th>الرقم</th><th>عليه</th><th>واصل</th><th>التاريخ والوقت</th><th>ملاحظات</th></tr></thead>
+                <tbody id="statement-rows"></tbody>
+            </table>
         </div>
     </section>
 
@@ -161,17 +182,72 @@
         <h3>حالة الأمان السحابي</h3>
         <p style="margin-bottom:1rem; color:#555;">النظام محمي ومؤمن تلقائياً بالكامل عبر خوادم Supabase السحابية للبيانات.</p>
     </section>
+
+    <section id="settings-tab" class="tab-content" style="display:none;">
+        <div class="main-grid">
+            <div class="table-card">
+                <h3>ربط جهاز ملحق</h3>
+                <p>من الجهاز الرئيسي اضغط إنشاء رمز، ثم افتح النظام من الجهاز الملحق على نفس الشبكة واكتب الرمز.</p>
+                <div class="account-grid" style="margin-top:1rem;">
+                    <div><span>رمز الربط الحالي</span><strong id="pair-code-view">—</strong></div>
+                    <div><span>حالة الجهاز</span><strong id="pair-status-view">غير مربوط</strong></div>
+                </div>
+                <button class="btn-primary" style="margin-top:1rem;" onclick="generatePairCode()">إنشاء رمز ربط</button>
+                <input type="text" id="pair-code-input" placeholder="أدخل رمز الجهاز الرئيسي..." style="margin-top:1rem;">
+                <button class="btn-success" style="margin-top:1rem;" onclick="linkNodeDevice()">ربط هذا الجهاز كملحق</button>
+            </div>
+            <div class="table-card">
+                <h3>الخزن والنسخ الاحتياطي</h3>
+                <p>البيانات محفوظة في Supabase. يمكنك تنزيل نسخة JSON من كل الجداول.</p>
+                <button class="btn-secondary" style="margin-top:1rem;" onclick="downloadBackup()">تنزيل نسخة احتياطية</button>
+                <input type="file" id="backup-file" accept="application/json" style="margin-top:1rem;">
+                <button class="btn-primary" style="margin-top:1rem;" onclick="importBackup()">رفع بيانات سابقة</button>
+            </div>
+            <div class="table-card">
+                <h3>تصميم طباعة القائمة</h3>
+                <label>هامش أعلى الورقة / ملم</label>
+                <input type="number" id="print-margin-top" value="10">
+                <label>هامش يمين ويسار / ملم</label>
+                <input type="number" id="print-margin-side" value="8">
+                <label>أقل ارتفاع لجدول القائمة / ملم</label>
+                <input type="number" id="print-table-height" value="120">
+                <button class="btn-secondary" style="margin-top:1rem;" onclick="savePrintSettings()">حفظ تصميم الطباعة</button>
+            </div>
+        </div>
+    </section>
 </div>
 
 <script>
 let currentRole = 'node';
 let globalProducts = [];
+let currentSaleAccount = { balance: 0 };
+let currentStatement = null;
+
+function money(value) {
+    return (Number(value) || 0).toLocaleString() + " د.ع";
+}
+
+function formatDateTime(value) {
+    return value ? new Date(value).toLocaleString('ar-IQ') : '—';
+}
+
+function safeText(value) {
+    return String(value || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+}
 
 function secureFetch(url, options = {}) {
     return fetch(url, options);
 }
 
 function initializeApp() {
+    currentRole = localStorage.getItem('deviceRole') || 'node';
+    document.getElementById('device-role').value = currentRole;
+    document.getElementById('pair-code-view').innerText = localStorage.getItem('pairCode') || '—';
+    document.getElementById('pair-status-view').innerText = localStorage.getItem('linkedAsNode') === 'true' ? 'مرتبط كجهاز ملحق' : 'غير مربوط';
+    const printSettings = getPrintSettings();
+    document.getElementById('print-margin-top').value = printSettings.marginTop;
+    document.getElementById('print-margin-side').value = printSettings.marginSide;
+    document.getElementById('print-table-height').value = printSettings.tableHeight;
     toggleRole();
     fetchGlobalProducts();
     loadSuppliersList();
@@ -180,15 +256,17 @@ function initializeApp() {
 
 function toggleRole() {
     currentRole = document.getElementById('device-role').value;
+    localStorage.setItem('deviceRole', currentRole);
     document.querySelectorAll('.master-only').forEach(el => el.style.display = currentRole === 'master' ? 'block' : 'none');
     switchTab('sale-tab');
 }
 
-function switchTab(tabId) {
+function switchTab(tabId, eventObj) {
     document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).style.display = 'block';
-    if(event && event.currentTarget) event.currentTarget.classList.add('active');
+    if(eventObj && eventObj.currentTarget) eventObj.currentTarget.classList.add('active');
+    else document.querySelector(`.tab-btn[onclick*="${tabId}"]`)?.classList.add('active');
 
     if (tabId === 'invoices-tab') loadInvoices();
     if (tabId === 'products-tab') loadProducts();
@@ -244,16 +322,37 @@ function calculateSaleTotal() {
         sub += total;
     });
     const disc = parseFloat(document.getElementById('sale-discount').value) || 0;
-    document.getElementById('sale-total').innerText = (sub - disc).toLocaleString() + " د.ع";
+    const finalTotal = Math.max(0, sub - disc);
+    const paymentType = document.getElementById('sale-payment').value;
+    const paidAmount = paymentType === 'cash' ? finalTotal : 0;
+    const grandTotal = paymentType === 'cash' ? currentSaleAccount.balance : currentSaleAccount.balance + finalTotal;
+    document.getElementById('sale-total').innerText = money(finalTotal);
+    document.getElementById('sale-paid-amount').innerText = money(paidAmount);
+    document.getElementById('sale-grand-total').innerText = money(grandTotal);
+}
+
+async function loadSaleCustomerAccount() {
+    const clientName = document.getElementById('sale-client').value.trim();
+    if (!clientName) return;
+    const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
+    const data = await res.json();
+    currentSaleAccount = data.account || { balance: 0 };
+    document.getElementById('sale-prev-balance').innerText = money(currentSaleAccount.balance);
+    calculateSaleTotal();
 }
 
 async function submitInvoice() {
     let items = [];
     document.querySelectorAll('#sale-rows tr').forEach(row => {
+        const name = row.querySelector('.p-name').value.trim();
+        const qty = parseInt(row.querySelector('.p-qty').value);
+        const price = parseFloat(row.querySelector('.p-price').value);
+        const total = parseFloat(row.querySelector('.p-total').innerText);
+        if (!name || !qty || !price || !total) return;
         items.push({
-            name: row.querySelector('.p-name').value, unit: row.querySelector('.p-unit').value,
-            qty: parseInt(row.querySelector('.p-qty').value), price: parseFloat(row.querySelector('.p-price').value),
-            total: parseFloat(row.querySelector('.p-total').innerText)
+            name, unit: row.querySelector('.p-unit').value,
+            qty, price,
+            total
         });
     });
     if(items.length === 0 || !document.getElementById('sale-client').value) return alert('يرجى ملء البضائع واسم العميل!');
@@ -267,23 +366,27 @@ async function submitInvoice() {
         body: JSON.stringify({
             client_name: document.getElementById('sale-client').value, total_amount: sub, discount: disc, final_amount: sub - disc,
             payment_type: document.getElementById('sale-payment').value, notes: document.getElementById('sale-notes').value,
-            device_type: currentRole === 'master' ? 'أساسي' : 'ملحق'
+            device_type: currentRole === 'master' ? 'أساسي' : 'ملحق',
+            items
         })
     });
     const data = await res.json(); alert(data.message);
+    if (data.success && data.invoiceId) printInvoice(data.invoiceId);
     document.getElementById('sale-rows').innerHTML = ''; document.getElementById('sale-client').value = ''; document.getElementById('sale-notes').value = '';
-    calculateSaleTotal(); fetchGlobalProducts();
+    currentSaleAccount = { balance: 0 };
+    document.getElementById('sale-prev-balance').innerText = money(0);
+    addSaleRow(); calculateSaleTotal(); fetchGlobalProducts();
 }
 
 async function loadInvoices() {
     const search = document.getElementById('search-invoice').value;
-    const res = await secureFetch(`/api/invoices?search=${search}`); const data = await res.json();
+    const res = await secureFetch(`/api/invoices?search=${encodeURIComponent(search)}`); const data = await res.json();
     const tbody = document.getElementById('invoices-rows'); tbody.innerHTML = '';
     data.data.forEach(inv => {
         tbody.insertAdjacentHTML('beforeend', `
             <tr>
                 <td>#${inv.invoice_number}</td><td><strong>${inv.client_name}</strong></td><td>${inv.final_amount.toLocaleString()} د.ع</td>
-                <td>${inv.payment_type === 'cash' ? '💵 نقدي':'⚠️ دين'}</td><td><small>${inv.notes || '—'}</small></td><td>${inv.device_type}</td>
+                <td>${inv.payment_type === 'cash' ? '💵 نقدي':'⚠️ دين'}</td><td>${formatDateTime(inv.created_at)}</td><td><small>${inv.notes || '—'}</small></td><td>${inv.device_type}</td>
                 <td><button class="btn-secondary" onclick="printInvoice(${inv.id})">طباعة الفاتورة 🖨️</button></td>
             </tr>
         `);
@@ -294,24 +397,26 @@ async function printInvoice(id) {
     const res = await secureFetch(`/api/invoices/${id}`); const data = await res.json();
     if(!data.success) return;
 
+    const settings = getPrintSettings();
     const pWin = window.open('', '', 'width=450,height=700');
     let itemsHtml = '';
     data.items.forEach(item => {
-        itemsHtml += `<tr><td>${item.item_name}</td><td>${item.quantity}</td><td>${item.price.toLocaleString()}</td><td>${item.row_total.toLocaleString()}</td></tr>`;
+        itemsHtml += `<tr><td style="border:1px solid #111; padding:6px;">${item.item_name}</td><td style="border:1px solid #111; padding:6px;">${item.unit_type || '—'}</td><td style="border:1px solid #111; padding:6px;">${item.quantity}</td><td style="border:1px solid #111; padding:6px;">${item.price.toLocaleString()}</td><td style="border:1px solid #111; padding:6px;">${item.row_total.toLocaleString()}</td></tr>`;
     });
 
     pWin.document.write(`
-        <div style="font-family:sans-serif; text-align:center; padding:10px; direction:rtl;">
+        <div style="font-family:sans-serif; text-align:center; direction:rtl; padding:${settings.marginTop}mm ${settings.marginSide}mm;">
             <h2>قائمة بيع جملة</h2>
             <p><b>رقم القائمة:</b> ${data.invoice.invoice_number}</p>
             <p><b>العميل:</b> ${data.invoice.client_name}</p>
             <p><b>التاريخ:</b> ${new Date(data.invoice.created_at).toLocaleString('ar-IQ')}</p>
-            <table style="width:100%; border-collapse:collapse; margin:15px 0; text-align:right;">
-                <thead><tr style="background:#eee;"><th>المادة</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead>
+            <table style="width:100%; border-collapse:collapse; margin:15px 0; text-align:right; min-height:${settings.tableHeight}mm; border:2px solid #111;">
+                <thead><tr style="background:#eee;"><th style="border:1px solid #111; padding:6px;">المادة</th><th style="border:1px solid #111; padding:6px;">التعبئة</th><th style="border:1px solid #111; padding:6px;">الكمية</th><th style="border:1px solid #111; padding:6px;">السعر</th><th style="border:1px solid #111; padding:6px;">المجموع</th></tr></thead>
                 <tbody>${itemsHtml}</tbody>
             </table>
             <hr>
             <h3>المجموع الصافي: ${data.invoice.final_amount.toLocaleString()} د.ع</h3>
+            <p><b>السابق:</b> ${money(data.account?.balance || 0)}</p>
             <p>ملاحظات: ${data.invoice.notes || '—'}</p>
         </div>
     `);
@@ -337,7 +442,7 @@ async function submitSupplierPayment() {
 async function loadSupplierPayments() {
     const res = await secureFetch('/api/supplier-payments'); const data = await res.json();
     const tbody = document.getElementById('sup-payments-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.supplier_name}</strong></td><td style="color:green; font-weight:bold;">${p.amount_paid.toLocaleString()} د.ع</td><td>${new Date(p.payment_date).toLocaleDateString()}</td><td>${p.notes || '—'}</td></tr>`));
+    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.supplier_name}</strong></td><td style="color:green; font-weight:bold;">${p.amount_paid.toLocaleString()} د.ع</td><td>${formatDateTime(p.payment_date)}</td><td>${p.notes || '—'}</td></tr>`));
 }
 
 async function loadSuppliersList() {
@@ -351,10 +456,15 @@ async function loadSuppliersList() {
 }
 
 async function submitPayment() {
-    await secureFetch('/api/payments', {
+    const client = document.getElementById('pay-client').value;
+    const amount = document.getElementById('pay-amount').value;
+    const notes = document.getElementById('pay-notes').value;
+    const res = await secureFetch('/api/payments', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ client_name: document.getElementById('pay-client').value, amount_paid: document.getElementById('pay-amount').value, notes: document.getElementById('pay-notes').value })
+        body: JSON.stringify({ client_name: client, amount_paid: amount, notes })
     });
+    const data = await res.json();
+    alert(data.message);
     document.getElementById('pay-client').value=''; document.getElementById('pay-amount').value=''; document.getElementById('pay-notes').value='';
     loadPayments();
 }
@@ -362,7 +472,60 @@ async function submitPayment() {
 async function loadPayments() {
     const res = await secureFetch('/api/payments'); const data = await res.json();
     const tbody = document.getElementById('payments-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td>${p.client_name}</td><td style="color:green;">${p.amount_paid.toLocaleString()} د.ع</td><td>${p.notes || '—'}</td></tr>`));
+    data.data.forEach(p => {
+        const client = safeText(p.client_name);
+        const notes = safeText(p.notes || '—');
+        const date = formatDateTime(p.payment_date);
+        tbody.insertAdjacentHTML('beforeend', `<tr><td>${client}</td><td style="color:green;">${p.amount_paid.toLocaleString()} د.ع</td><td>${date}</td><td>${notes}</td><td><button class="btn-secondary" onclick="printPaymentReceipt('${client}', ${p.amount_paid}, '${date}', '${notes}')">طباعة وصل</button></td></tr>`);
+    });
+}
+
+async function loadCustomerStatement() {
+    const clientName = document.getElementById('pay-client').value.trim();
+    if (!clientName) return alert('أدخل اسم الزبون لعرض البيان');
+    const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
+    const data = await res.json();
+    currentStatement = { clientName, account: data.account };
+    document.getElementById('stmt-invoices').innerText = money(data.account.totalInvoices);
+    document.getElementById('stmt-payments').innerText = money(data.account.totalPayments);
+    document.getElementById('stmt-balance').innerText = money(data.account.balance);
+    const tbody = document.getElementById('statement-rows'); tbody.innerHTML = '';
+    data.account.operations.forEach(op => tbody.insertAdjacentHTML('beforeend', `<tr><td>${op.type}</td><td>${op.number}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`));
+}
+
+function printPaymentReceipt(client, amount, date, notes) {
+    const pWin = window.open('', '', 'width=420,height=600');
+    pWin.document.write(`
+        <div style="font-family:sans-serif; direction:rtl; text-align:center; padding:18px;">
+            <h2>وصل قبض</h2>
+            <hr>
+            <p><b>الزبون:</b> ${client}</p>
+            <p><b>المبلغ الواصل:</b> ${money(amount)}</p>
+            <p><b>التاريخ والوقت:</b> ${date}</p>
+            <p><b>الملاحظة:</b> ${notes}</p>
+            <hr>
+            <p>توقيع المستلم: ______________</p>
+        </div>
+    `);
+    pWin.document.close(); pWin.print();
+}
+
+function printCustomerStatement() {
+    if (!currentStatement) return alert('اعرض بيان الزبون أولاً');
+    const rows = currentStatement.account.operations.map(op => `<tr><td>${op.type}</td><td>${op.number}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`).join('');
+    const pWin = window.open('', '', 'width=800,height=700');
+    pWin.document.write(`
+        <div style="font-family:sans-serif; direction:rtl; padding:18px;">
+            <h2 style="text-align:center;">بيان حساب زبون</h2>
+            <p><b>الزبون:</b> ${currentStatement.clientName}</p>
+            <p><b>إجمالي الدين:</b> ${money(currentStatement.account.totalInvoices)} | <b>إجمالي الواصل:</b> ${money(currentStatement.account.totalPayments)} | <b>المتبقي:</b> ${money(currentStatement.account.balance)}</p>
+            <table style="width:100%; border-collapse:collapse; text-align:right;" border="1">
+                <thead><tr><th>النوع</th><th>الرقم</th><th>عليه</th><th>واصل</th><th>التاريخ</th><th>ملاحظات</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `);
+    pWin.document.close(); pWin.print();
 }
 
 async function loadProducts() {
@@ -387,6 +550,61 @@ async function loadReports() {
     const res = await secureFetch('/api/reports'); const data = await res.json();
     document.getElementById('rep-sales').innerText = data.reports.totalSales.toLocaleString() + " د.ع";
     document.getElementById('rep-debts').innerText = data.reports.totalDebts.toLocaleString() + " د.ع";
+}
+
+function generatePairCode() {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    localStorage.setItem('pairCode', code);
+    document.getElementById('pair-code-view').innerText = code;
+    alert(`رمز الربط هو: ${code}`);
+}
+
+function linkNodeDevice() {
+    const entered = document.getElementById('pair-code-input').value.trim();
+    const code = localStorage.getItem('pairCode');
+    if (!entered || entered !== code) return alert('رمز الربط غير صحيح');
+    localStorage.setItem('linkedAsNode', 'true');
+    localStorage.setItem('deviceRole', 'node');
+    document.getElementById('device-role').value = 'node';
+    document.getElementById('pair-status-view').innerText = 'مرتبط كجهاز ملحق';
+    toggleRole();
+    alert('تم ربط الجهاز كملحق. يمكنه إنشاء قوائم فقط.');
+}
+
+function downloadBackup() {
+    window.open('/api/backup/export', '_blank');
+}
+
+function getPrintSettings() {
+    return {
+        marginTop: Number(localStorage.getItem('printMarginTop')) || 10,
+        marginSide: Number(localStorage.getItem('printMarginSide')) || 8,
+        tableHeight: Number(localStorage.getItem('printTableHeight')) || 120
+    };
+}
+
+function savePrintSettings() {
+    localStorage.setItem('printMarginTop', document.getElementById('print-margin-top').value || 10);
+    localStorage.setItem('printMarginSide', document.getElementById('print-margin-side').value || 8);
+    localStorage.setItem('printTableHeight', document.getElementById('print-table-height').value || 120);
+    alert('تم حفظ تصميم الطباعة');
+}
+
+async function importBackup() {
+    const file = document.getElementById('backup-file').files[0];
+    if (!file) return alert('اختر ملف النسخة الاحتياطية أولاً');
+    if (!confirm('سيتم رفع البيانات إلى Supabase. هل تريد المتابعة؟')) return;
+
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const res = await secureFetch('/api/backup/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    alert(data.success ? 'تم رفع البيانات السابقة بنجاح' : 'فشل رفع البيانات');
+    fetchGlobalProducts(); loadSuppliersList(); loadInvoices(); loadPayments();
 }
 
 window.onload = () => {
