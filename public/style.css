@@ -212,6 +212,8 @@ button {
 .btn-success:hover { background: #24b0a3; }
 .btn-secondary { background: #e2e8f0; color: var(--text-dark); }
 .btn-secondary:hover { background: #cbd5e1; }
+.btn-danger { background: #dc2626; color: white; }
+.btn-danger:hover { background: #b91c1c; }
 
 .action-bar {
     display: flex;

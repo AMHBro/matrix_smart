@@ -8,7 +8,16 @@
 </head>
 <body>
 
-<div class="container" id="app-container">
+<div id="login-screen" style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+    <div class="table-card" style="width:100%; max-width:420px; text-align:center;">
+        <h2>تسجيل دخول النظام</h2>
+        <p style="margin:1rem 0; color:#777;">أدخل رمز الدخول للمتابعة</p>
+        <input type="password" id="login-code" placeholder="رمز الدخول">
+        <button class="btn-success" style="width:100%; margin-top:1rem;" onclick="loginSystem()">دخول</button>
+    </div>
+</div>
+
+<div class="container" id="app-container" style="display:none;">
     <header>
         <div class="brand-zone">
             <h2>نظام إدارة الجملة 📦</h2>
@@ -97,6 +106,7 @@
                     <input type="text" id="pay-notes" placeholder="ملاحظة التسديد...">
                     <button class="btn-success" onclick="submitPayment()">حفظ وصل القبض 💵</button>
                     <button class="btn-secondary" onclick="loadCustomerStatement()">عرض بيان الزبون</button>
+                    <button class="btn-danger" onclick="deleteCustomer()">حذف الزبون وجميع حركاته</button>
                 </div>
             </div>
             <div class="table-card">
@@ -205,6 +215,16 @@
             </div>
             <div class="table-card">
                 <h3>تصميم طباعة القائمة</h3>
+                <label>اسم المكتب</label>
+                <input type="text" id="print-office-name" value="عقيل زيارة">
+                <label>وصف المكتب</label>
+                <input type="text" id="print-office-subtitle" value="لبيع كافة أنواع الحلويات">
+                <label>العنوان</label>
+                <input type="text" id="print-office-address" value="بغداد - جميلة - شارع الوسطية - خلف معمل فرندي">
+                <label>أرقام الهاتف</label>
+                <input type="text" id="print-office-phones" value="07728456348 - 07804553776">
+                <label>رابط الشعار</label>
+                <input type="text" id="print-office-logo" placeholder="اتركه فارغاً لاستخدام شعار حرفي">
                 <label>هامش أعلى الورقة / ملم</label>
                 <input type="number" id="print-margin-top" value="10">
                 <label>هامش يمين ويسار / ملم</label>
@@ -222,6 +242,7 @@ let currentRole = 'node';
 let globalProducts = [];
 let currentSaleAccount = { balance: 0 };
 let currentStatement = null;
+const LOGIN_CODE = '2468';
 
 function money(value) {
     return (Number(value) || 0).toLocaleString() + " د.ع";
@@ -239,6 +260,15 @@ function secureFetch(url, options = {}) {
     return fetch(url, options);
 }
 
+function loginSystem() {
+    const code = document.getElementById('login-code').value.trim();
+    if (code !== LOGIN_CODE) return alert('رمز الدخول غير صحيح');
+    sessionStorage.setItem('smartMaktabLoggedIn', 'true');
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-container').style.display = 'block';
+    initializeApp();
+}
+
 function initializeApp() {
     currentRole = localStorage.getItem('deviceRole') || 'node';
     document.getElementById('device-role').value = currentRole;
@@ -248,6 +278,11 @@ function initializeApp() {
     document.getElementById('print-margin-top').value = printSettings.marginTop;
     document.getElementById('print-margin-side').value = printSettings.marginSide;
     document.getElementById('print-table-height').value = printSettings.tableHeight;
+    document.getElementById('print-office-name').value = printSettings.officeName;
+    document.getElementById('print-office-subtitle').value = printSettings.officeSubtitle;
+    document.getElementById('print-office-address').value = printSettings.officeAddress;
+    document.getElementById('print-office-phones').value = printSettings.officePhones;
+    document.getElementById('print-office-logo').value = printSettings.officeLogo;
     toggleRole();
     fetchGlobalProducts();
     loadSuppliersList();
@@ -400,24 +435,55 @@ async function printInvoice(id) {
     const settings = getPrintSettings();
     const pWin = window.open('', '', 'width=450,height=700');
     let itemsHtml = '';
-    data.items.forEach(item => {
-        itemsHtml += `<tr><td style="border:1px solid #111; padding:6px;">${item.item_name}</td><td style="border:1px solid #111; padding:6px;">${item.unit_type || '—'}</td><td style="border:1px solid #111; padding:6px;">${item.quantity}</td><td style="border:1px solid #111; padding:6px;">${item.price.toLocaleString()}</td><td style="border:1px solid #111; padding:6px;">${item.row_total.toLocaleString()}</td></tr>`;
+    data.items.forEach((item, index) => {
+        itemsHtml += `<tr><td>${index + 1}</td><td>${item.item_name}</td><td>${item.unit_type || '—'}</td><td>${item.quantity}</td><td>${item.price.toLocaleString()}</td><td>${item.row_total.toLocaleString()}</td></tr>`;
     });
+    const paid = data.invoice.payment_type === 'cash' ? Number(data.invoice.final_amount) || 0 : 0;
+    const previous = Number(data.previous_balance ?? data.account?.balance ?? 0) || 0;
+    const remaining = data.invoice.payment_type === 'cash' ? previous : previous + (Number(data.invoice.final_amount) || 0);
 
     pWin.document.write(`
-        <div style="font-family:sans-serif; text-align:center; direction:rtl; padding:${settings.marginTop}mm ${settings.marginSide}mm;">
-            <h2>قائمة بيع جملة</h2>
-            <p><b>رقم القائمة:</b> ${data.invoice.invoice_number}</p>
-            <p><b>العميل:</b> ${data.invoice.client_name}</p>
-            <p><b>التاريخ:</b> ${new Date(data.invoice.created_at).toLocaleString('ar-IQ')}</p>
-            <table style="width:100%; border-collapse:collapse; margin:15px 0; text-align:right; min-height:${settings.tableHeight}mm; border:2px solid #111;">
-                <thead><tr style="background:#eee;"><th style="border:1px solid #111; padding:6px;">المادة</th><th style="border:1px solid #111; padding:6px;">التعبئة</th><th style="border:1px solid #111; padding:6px;">الكمية</th><th style="border:1px solid #111; padding:6px;">السعر</th><th style="border:1px solid #111; padding:6px;">المجموع</th></tr></thead>
+        <style>
+            body{font-family:Arial,Tahoma,sans-serif; direction:rtl; color:#111;}
+            .page{padding:${settings.marginTop}mm ${settings.marginSide}mm;}
+            .header{border:2px dotted #222; display:grid; grid-template-columns:110px 1fr; align-items:center; padding:8px; text-align:center;}
+            .logo{width:86px;height:86px;border:2px solid #777;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:42px;font-weight:bold;margin:auto;overflow:hidden;}
+            .logo img{width:100%;height:100%;object-fit:contain;}
+            h1{font-size:34px;margin:0 0 4px;}
+            .meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:10px 0;font-size:13px;}
+            .box{border:1px solid #222;padding:4px;min-height:18px;}
+            table{width:100%;border-collapse:collapse;text-align:center;font-size:11px;table-layout:fixed;}
+            th,td{border:1px solid #222;padding:3px 4px;line-height:1.25;vertical-align:middle;}
+            th:nth-child(2),td:nth-child(2){width:38%;text-align:right;}
+            th:nth-child(1),td:nth-child(1){width:6%;}
+            thead{background:#e9edf3;}
+            .items{margin-top:6px;}
+            .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px;font-size:12px;}
+            .sign{display:grid;grid-template-columns:repeat(3,1fr);margin-top:28px;text-align:center;font-size:12px;}
+        </style>
+        <div class="page">
+            ${printHeader(settings)}
+            <div class="meta">
+                <div class="box"><b>رقم:</b> ${data.invoice.invoice_number}</div>
+                <div class="box"><b>التاريخ:</b> ${new Date(data.invoice.created_at).toLocaleDateString('ar-IQ')}</div>
+                <div class="box"><b>الوقت:</b> ${new Date(data.invoice.created_at).toLocaleTimeString('ar-IQ')}</div>
+                <div class="box"><b>حضرة السيد:</b> ${data.invoice.client_name}</div>
+                <div class="box"><b>المندوب:</b> —</div>
+                <div class="box"><b>نوع الدفع:</b> ${data.invoice.payment_type === 'cash' ? 'نقدي' : 'دين'}</div>
+            </div>
+            <table class="items">
+                <thead><tr><th>ت</th><th>المادة</th><th>التعبئة</th><th>الكمية</th><th>سعر المفرد</th><th>المجموع</th></tr></thead>
                 <tbody>${itemsHtml}</tbody>
             </table>
-            <hr>
-            <h3>المجموع الصافي: ${data.invoice.final_amount.toLocaleString()} د.ع</h3>
-            <p><b>السابق:</b> ${money(data.account?.balance || 0)}</p>
-            <p>ملاحظات: ${data.invoice.notes || '—'}</p>
+            <div class="summary">
+                <div class="box"><b>مجموع القائمة:</b> ${money(data.invoice.final_amount)}</div>
+                <div class="box"><b>الخصم:</b> ${money(data.invoice.discount)}</div>
+                <div class="box"><b>الواصل نقداً:</b> ${money(paid)}</div>
+                <div class="box"><b>الرصيد السابق:</b> ${money(previous)}</div>
+                <div class="box"><b>الرصيد المتبقي:</b> ${money(remaining)}</div>
+                <div class="box"><b>الملاحظات:</b> ${data.invoice.notes || '—'}</div>
+            </div>
+            <div class="sign"><span>توقيع المستلم</span><span>صاحب السيارة / المندوب</span><span>الختم والتوقيع</span></div>
         </div>
     `);
     pWin.document.close(); pWin.print();
@@ -493,18 +559,49 @@ async function loadCustomerStatement() {
     data.account.operations.forEach(op => tbody.insertAdjacentHTML('beforeend', `<tr><td>${op.type}</td><td>${op.number}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`));
 }
 
+async function deleteCustomer() {
+    const clientName = document.getElementById('pay-client').value.trim();
+    if (!clientName) return alert('أدخل اسم الزبون المراد حذفه');
+    if (!confirm(`سيتم حذف الزبون "${clientName}" مع كل فواتيره ووصولاته. هل أنت متأكد؟`)) return;
+
+    const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}`, { method: 'DELETE' });
+    const data = await res.json();
+    alert(data.message || (data.success ? 'تم الحذف' : 'فشل الحذف'));
+    document.getElementById('pay-client').value = '';
+    document.getElementById('statement-rows').innerHTML = '';
+    document.getElementById('stmt-invoices').innerText = money(0);
+    document.getElementById('stmt-payments').innerText = money(0);
+    document.getElementById('stmt-balance').innerText = money(0);
+    loadPayments(); loadInvoices(); loadReports();
+}
+
 function printPaymentReceipt(client, amount, date, notes) {
+    const settings = getPrintSettings();
     const pWin = window.open('', '', 'width=420,height=600');
     pWin.document.write(`
-        <div style="font-family:sans-serif; direction:rtl; text-align:center; padding:18px;">
-            <h2>وصل قبض</h2>
-            <hr>
-            <p><b>الزبون:</b> ${client}</p>
-            <p><b>المبلغ الواصل:</b> ${money(amount)}</p>
-            <p><b>التاريخ والوقت:</b> ${date}</p>
-            <p><b>الملاحظة:</b> ${notes}</p>
-            <hr>
-            <p>توقيع المستلم: ______________</p>
+        <style>
+            body{font-family:Arial,Tahoma,sans-serif;direction:rtl;color:#111;}
+            .page{padding:${settings.marginTop}mm ${settings.marginSide}mm;}
+            .header{border:2px dotted #222;display:grid;grid-template-columns:95px 1fr;align-items:center;padding:8px;text-align:center;}
+            .logo{width:76px;height:76px;border:2px solid #777;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:bold;margin:auto;overflow:hidden;}
+            .logo img{width:100%;height:100%;object-fit:contain;}
+            h1{font-size:30px;margin:0 0 4px;}
+            h2{text-align:center;text-decoration:underline;margin:18px 0;}
+            .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+            .box{border:1px solid #222;padding:7px;min-height:22px;}
+            .wide{grid-column:1/3;}
+        </style>
+        <div class="page">
+            ${printHeader(settings)}
+            <h2>سند قبض</h2>
+            <div class="grid">
+                <div class="box"><b>الأسم:</b> ${client}</div>
+                <div class="box"><b>التاريخ:</b> ${date}</div>
+                <div class="box"><b>المبلغ دينار:</b> ${money(amount)}</div>
+                <div class="box"><b>نوع القبض:</b> قبض من العملاء</div>
+                <div class="box wide"><b>الملاحظات:</b> ${notes}</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;margin-top:30px;text-align:center;"><span>المحاسب</span><span>توقيع المستلم</span></div>
         </div>
     `);
     pWin.document.close(); pWin.print();
@@ -512,15 +609,37 @@ function printPaymentReceipt(client, amount, date, notes) {
 
 function printCustomerStatement() {
     if (!currentStatement) return alert('اعرض بيان الزبون أولاً');
-    const rows = currentStatement.account.operations.map(op => `<tr><td>${op.type}</td><td>${op.number}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`).join('');
+    const settings = getPrintSettings();
+    let runningBalance = 0;
+    const rows = currentStatement.account.operations.map(op => {
+        runningBalance += (Number(op.debit) || 0) - (Number(op.credit) || 0);
+        return `<tr><td>${money(Math.max(runningBalance, 0))}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${op.type}</td><td>${op.number}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`;
+    }).join('');
     const pWin = window.open('', '', 'width=800,height=700');
     pWin.document.write(`
-        <div style="font-family:sans-serif; direction:rtl; padding:18px;">
-            <h2 style="text-align:center;">بيان حساب زبون</h2>
-            <p><b>الزبون:</b> ${currentStatement.clientName}</p>
-            <p><b>إجمالي الدين:</b> ${money(currentStatement.account.totalInvoices)} | <b>إجمالي الواصل:</b> ${money(currentStatement.account.totalPayments)} | <b>المتبقي:</b> ${money(currentStatement.account.balance)}</p>
-            <table style="width:100%; border-collapse:collapse; text-align:right;" border="1">
-                <thead><tr><th>النوع</th><th>الرقم</th><th>عليه</th><th>واصل</th><th>التاريخ</th><th>ملاحظات</th></tr></thead>
+        <style>
+            body{font-family:Arial,Tahoma,sans-serif;direction:rtl;color:#111;}
+            .page{padding:${settings.marginTop}mm ${settings.marginSide}mm;}
+            .header{border:2px dotted #222;display:grid;grid-template-columns:95px 1fr;align-items:center;padding:8px;text-align:center;margin-bottom:10px;}
+            .logo{width:76px;height:76px;border:2px solid #777;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:bold;margin:auto;overflow:hidden;}
+            .logo img{width:100%;height:100%;object-fit:contain;}
+            .statement-head{text-align:center;margin-bottom:10px;}
+            .filter{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;}
+            .box{border:1px solid #222;padding:5px;}
+            table{width:100%;border-collapse:collapse;text-align:center;font-size:12px;}
+            th,td{border:1px solid #222;padding:5px;}
+            thead{background:#e9edf3;}
+        </style>
+        <div class="page">
+            ${printHeader(settings)}
+            <div class="statement-head"><h2>كشف حساب</h2></div>
+            <div class="filter">
+                <div class="box"><b>الزبون:</b> ${currentStatement.clientName}</div>
+                <div class="box"><b>إجمالي الواصل:</b> ${money(currentStatement.account.totalPayments)}</div>
+                <div class="box"><b>المتبقي:</b> ${money(currentStatement.account.balance)}</div>
+            </div>
+            <table>
+                <thead><tr><th>الرصيد</th><th>مدين</th><th>دائن</th><th>النوع</th><th>الرقم</th><th>التاريخ</th><th>ملاحظات</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>
@@ -579,14 +698,41 @@ function getPrintSettings() {
     return {
         marginTop: Number(localStorage.getItem('printMarginTop')) || 10,
         marginSide: Number(localStorage.getItem('printMarginSide')) || 8,
-        tableHeight: Number(localStorage.getItem('printTableHeight')) || 120
+        tableHeight: Number(localStorage.getItem('printTableHeight')) || 120,
+        officeName: localStorage.getItem('printOfficeName') || 'عقيل زيارة',
+        officeSubtitle: localStorage.getItem('printOfficeSubtitle') || 'لبيع كافة أنواع الحلويات',
+        officeAddress: localStorage.getItem('printOfficeAddress') || 'بغداد - جميلة - شارع الوسطية - خلف معمل فرندي',
+        officePhones: localStorage.getItem('printOfficePhones') || '07728456348 - 07804553776',
+        officeLogo: localStorage.getItem('printOfficeLogo') || ''
     };
+}
+
+function printHeader(settings) {
+    const logo = settings.officeLogo
+        ? `<img src="${settings.officeLogo}">`
+        : `<span>${safeText(settings.officeName).charAt(0) || 'F'}</span>`;
+    return `
+        <div class="header">
+            <div class="logo">${logo}</div>
+            <div>
+                <h1>${settings.officeName}</h1>
+                <div>${settings.officeSubtitle}</div>
+                <div>${settings.officeAddress}</div>
+                <div>${settings.officePhones}</div>
+            </div>
+        </div>
+    `;
 }
 
 function savePrintSettings() {
     localStorage.setItem('printMarginTop', document.getElementById('print-margin-top').value || 10);
     localStorage.setItem('printMarginSide', document.getElementById('print-margin-side').value || 8);
     localStorage.setItem('printTableHeight', document.getElementById('print-table-height').value || 120);
+    localStorage.setItem('printOfficeName', document.getElementById('print-office-name').value || 'عقيل زيارة');
+    localStorage.setItem('printOfficeSubtitle', document.getElementById('print-office-subtitle').value || 'لبيع كافة أنواع الحلويات');
+    localStorage.setItem('printOfficeAddress', document.getElementById('print-office-address').value || '');
+    localStorage.setItem('printOfficePhones', document.getElementById('print-office-phones').value || '');
+    localStorage.setItem('printOfficeLogo', document.getElementById('print-office-logo').value || '');
     alert('تم حفظ تصميم الطباعة');
 }
 
@@ -608,7 +754,11 @@ async function importBackup() {
 }
 
 window.onload = () => {
-    initializeApp();
+    if (sessionStorage.getItem('smartMaktabLoggedIn') === 'true') {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app-container').style.display = 'block';
+        initializeApp();
+    }
 };
 </script>
 </body>

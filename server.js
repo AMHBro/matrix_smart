@@ -158,6 +158,22 @@ app.get('/api/customers/:name/account', checkAuth, async (req, res) => {
     res.json({ success: true, account });
 });
 
+app.delete('/api/customers/:name', checkAuth, async (req, res) => {
+    const name = (req.params.name || '').trim();
+    if (!name) return res.json({ success: false, message: 'اسم الزبون غير صحيح' });
+
+    const { data: invoices } = await supabase.from('invoices').select('id').ilike('client_name', name);
+    const invoiceIds = (invoices || []).map(inv => inv.id);
+
+    if (invoiceIds.length > 0) {
+        await supabase.from('invoice_items').delete().in('invoice_id', invoiceIds);
+        await supabase.from('invoices').delete().in('id', invoiceIds);
+    }
+
+    await supabase.from('debt_payments').delete().ilike('client_name', name);
+    res.json({ success: true, message: 'تم حذف الزبون وجميع فواتيره ووصولاته' });
+});
+
 app.post('/api/supplier-payments', checkAuth, async (req, res) => {
     const { supplier_name, amount_paid, notes } = req.body;
     const { error: payError } = await supabase.from('supplier_payments').insert([{ supplier_name, amount_paid, notes }]);
