@@ -231,6 +231,31 @@ button {
     max-width: 350px;
 }
 
+.account-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.account-grid > div {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.account-grid span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+}
+
+.account-grid strong {
+    display: block;
+    word-break: break-word;
+}
+
 /* ======================================================= */
 /* 🛠️ شاشات الموبايل والأجهزة الصغيرة (Media Queries) */
 /* ======================================================= */
@@ -265,5 +290,106 @@ button {
     th, td {
         padding: 8px 5px;
         font-size: 0.85rem; /* تصغير الخط قليلاً ليتلائم مع شاشات الهواتف */
+    }
+}
+@media (max-width: 1024px) {
+    .container {
+        max-width: 100%;
+    }
+
+    .main-grid {
+        grid-template-columns: 1fr;
+    }
+
+    table {
+        min-width: 760px;
+    }
+}
+
+@media (max-width: 640px) {
+    body {
+        padding: 6px;
+    }
+
+    header, .table-card, .summary-card, .action-bar {
+        padding: 12px;
+        border-radius: 10px;
+    }
+
+    .brand-zone h2 {
+        font-size: 1.1rem;
+    }
+
+    .nav-tabs {
+        gap: 6px;
+        padding-bottom: 8px;
+    }
+
+    .tab-btn {
+        flex: 0 0 auto;
+        padding: 9px 12px;
+        font-size: 0.85rem;
+    }
+
+    input, select, button {
+        min-height: 42px;
+        font-size: 0.95rem;
+    }
+
+    button {
+        width: 100%;
+        padding: 10px 12px;
+    }
+
+    table {
+        min-width: 820px;
+    }
+
+    table input, table select {
+        min-width: 84px;
+        padding: 8px 6px;
+    }
+
+    td:first-child input {
+        min-width: 160px;
+    }
+
+    .total-view {
+        font-size: 1.35rem;
+        padding: 12px;
+    }
+
+    .account-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .action-bar {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .action-bar input {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    #login-screen {
+        padding: 12px;
+    }
+}
+
+@media (max-width: 380px) {
+    .brand-zone h2 {
+        font-size: 1rem;
+    }
+
+    .table-card h3, .summary-card h3 {
+        font-size: 1rem;
+    }
+
+    th, td {
+        font-size: 0.8rem;
     }
 }
