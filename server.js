@@ -221,6 +221,10 @@ app.post('/api/products', checkAuth, async (req, res) => {
     await supabase.from('products').insert([{ name, box_price, piece_price, stock_qty }]);
     res.json({ success: true });
 });
+app.delete('/api/products/:id', checkAuth, async (req, res) => {
+    const { error } = await supabase.from('products').delete().eq('id', req.params.id);
+    res.json({ success: !error, message: error ? 'فشل حذف المنتج' : 'تم حذف المنتج من المخزن' });
+});
 
 app.get('/api/suppliers', checkAuth, async (req, res) => {
     const { data } = await supabase.from('suppliers').select('*');

@@ -48,7 +48,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>المادة</th><th>التعبئة</th><th style="width:100px;">الكمية</th><th style="width:160px;">السعر (د.ع)</th><th>المجموع</th><th>حذف</th>
+                            <th>المادة</th><th style="width:100px;">عدد الكارتون</th><th style="width:100px;">عدد القطع</th><th style="width:160px;">سعر الكارتون</th><th style="width:160px;">سعر القطعة</th><th>المجموع</th><th>حذف</th>
                         </tr>
                     </thead>
                     <tbody id="sale-rows"></tbody>
@@ -163,7 +163,7 @@
             <button class="btn-primary" onclick="addProduct()">إضافة المنتج</button>
         </div>
         <table>
-            <thead><tr><th>اسم المنتج</th><th>سعر الكارتون</th><th>سعر القطعة</th><th>المخزون الحالي</th></tr></thead>
+            <thead><tr><th>اسم المنتج</th><th>سعر الكارتون</th><th>سعر القطعة</th><th>المخزون الحالي</th><th>حذف</th></tr></thead>
             <tbody id="products-rows"></tbody>
         </table>
     </section>
@@ -328,9 +328,10 @@ function addSaleRow() {
     tbody.insertAdjacentHTML('beforeend', `
         <tr id="row-${id}">
             <td><input type="text" class="p-name" list="products-datalist" oninput="autoFillPrice(${id})" placeholder="ابحث في البضاعة..."></td>
-            <td><select class="p-unit" onchange="autoFillPrice(${id})"><option value="piece">قطعة</option><option value="box">كارتون</option></select></td>
-            <td><input type="number" class="p-qty" value="1" min="1" oninput="calculateSaleTotal()"></td>
-            <td><input type="number" class="p-price" value="0" oninput="calculateSaleTotal()"></td>
+            <td><input type="number" class="p-box-qty" value="0" min="0" oninput="calculateSaleTotal()"></td>
+            <td><input type="number" class="p-piece-qty" value="0" min="0" oninput="calculateSaleTotal()"></td>
+            <td><input type="number" class="p-box-price" value="0" oninput="calculateSaleTotal()"></td>
+            <td><input type="number" class="p-piece-price" value="0" oninput="calculateSaleTotal()"></td>
             <td><span class="p-total">0</span> د.ع</td>
             <td><button onclick="document.getElementById('row-${id}').remove(); calculateSaleTotal();" style="color:red; background:none; border:none; cursor:pointer;">❌</button></td>
         </tr>
@@ -340,19 +341,24 @@ function addSaleRow() {
 function autoFillPrice(id) {
     const row = document.getElementById(`row-${id}`);
     const name = row.querySelector('.p-name').value;
-    const unit = row.querySelector('.p-unit').value;
-    const priceInput = row.querySelector('.p-price');
+    const boxPriceInput = row.querySelector('.p-box-price');
+    const piecePriceInput = row.querySelector('.p-piece-price');
     const product = globalProducts.find(p => p.name === name);
-    if(product) priceInput.value = unit === 'box' ? product.box_price : product.piece_price;
+    if(product) {
+        boxPriceInput.value = product.box_price || 0;
+        piecePriceInput.value = product.piece_price || 0;
+    }
     calculateSaleTotal();
 }
 
 function calculateSaleTotal() {
     let sub = 0;
     document.querySelectorAll('#sale-rows tr').forEach(row => {
-        const qty = parseFloat(row.querySelector('.p-qty').value) || 0;
-        const price = parseFloat(row.querySelector('.p-price').value) || 0;
-        const total = qty * price;
+        const boxQty = parseFloat(row.querySelector('.p-box-qty').value) || 0;
+        const pieceQty = parseFloat(row.querySelector('.p-piece-qty').value) || 0;
+        const boxPrice = parseFloat(row.querySelector('.p-box-price').value) || 0;
+        const piecePrice = parseFloat(row.querySelector('.p-piece-price').value) || 0;
+        const total = (boxQty * boxPrice) + (pieceQty * piecePrice);
         row.querySelector('.p-total').innerText = total;
         sub += total;
     });
@@ -380,15 +386,25 @@ async function submitInvoice() {
     let items = [];
     document.querySelectorAll('#sale-rows tr').forEach(row => {
         const name = row.querySelector('.p-name').value.trim();
-        const qty = parseInt(row.querySelector('.p-qty').value);
-        const price = parseFloat(row.querySelector('.p-price').value);
-        const total = parseFloat(row.querySelector('.p-total').innerText);
-        if (!name || !qty || !price || !total) return;
-        items.push({
-            name, unit: row.querySelector('.p-unit').value,
-            qty, price,
-            total
-        });
+        const boxQty = parseInt(row.querySelector('.p-box-qty').value) || 0;
+        const pieceQty = parseInt(row.querySelector('.p-piece-qty').value) || 0;
+        const boxPrice = parseFloat(row.querySelector('.p-box-price').value) || 0;
+        const piecePrice = parseFloat(row.querySelector('.p-piece-price').value) || 0;
+        if (!name) return;
+        if (boxQty > 0 && boxPrice > 0) {
+            items.push({
+                name, unit: 'box',
+                qty: boxQty, price: boxPrice,
+                total: boxQty * boxPrice
+            });
+        }
+        if (pieceQty > 0 && piecePrice > 0) {
+            items.push({
+                name, unit: 'piece',
+                qty: pieceQty, price: piecePrice,
+                total: pieceQty * piecePrice
+            });
+        }
     });
     if(items.length === 0 || !document.getElementById('sale-client').value) return alert('يرجى ملء البضائع واسم العميل!');
     
@@ -650,12 +666,20 @@ function printCustomerStatement() {
 async function loadProducts() {
     const res = await secureFetch('/api/products'); const data = await res.json();
     const tbody = document.getElementById('products-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.name}</strong></td><td>${p.box_price.toLocaleString()} د.ع</td><td>${p.piece_price.toLocaleString()} د.ع</td><td>${p.stock_qty}</td></tr>`));
+    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.name}</strong></td><td>${p.box_price.toLocaleString()} د.ع</td><td>${p.piece_price.toLocaleString()} د.ع</td><td>${p.stock_qty}</td><td><button class="btn-danger" onclick="deleteProduct(${p.id}, '${safeText(p.name)}')">حذف</button></td></tr>`));
 }
 
 async function addProduct() {
     await secureFetch('/api/products', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: document.getElementById('prod-name').value, box_price: document.getElementById('prod-box').value, piece_price: document.getElementById('prod-piece').value, stock_qty: document.getElementById('prod-stock').value }) });
     document.getElementById('prod-name').value=''; document.getElementById('prod-box').value=''; document.getElementById('prod-piece').value=''; document.getElementById('prod-stock').value='';
+    loadProducts(); fetchGlobalProducts();
+}
+
+async function deleteProduct(id, name) {
+    if(!confirm(`هل تريد حذف ${name} من المخزن؟`)) return;
+    const res = await secureFetch(`/api/products/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    alert(data.message);
     loadProducts(); fetchGlobalProducts();
 }
 
