@@ -223,8 +223,10 @@
                 <input type="text" id="print-office-address" value="بغداد - جميلة - شارع الوسطية - خلف معمل فرندي">
                 <label>أرقام الهاتف</label>
                 <input type="text" id="print-office-phones" value="07728456348 - 07804553776">
-                <label>رابط الشعار</label>
-                <input type="text" id="print-office-logo" placeholder="اتركه فارغاً لاستخدام شعار حرفي">
+                <label>صورة الشعار</label>
+                <input type="file" id="print-office-logo-file" accept="image/*">
+                <div id="print-logo-status" style="margin-top:0.5rem; color:#777;">لا يوجد شعار محفوظ</div>
+                <button class="btn-danger" style="margin-top:0.5rem;" onclick="clearPrintLogo()">حذف الشعار</button>
                 <label>هامش أعلى الورقة / ملم</label>
                 <input type="number" id="print-margin-top" value="10">
                 <label>هامش يمين ويسار / ملم</label>
@@ -285,7 +287,7 @@ function initializeApp() {
     document.getElementById('print-office-subtitle').value = printSettings.officeSubtitle;
     document.getElementById('print-office-address').value = printSettings.officeAddress;
     document.getElementById('print-office-phones').value = printSettings.officePhones;
-    document.getElementById('print-office-logo').value = printSettings.officeLogo;
+    document.getElementById('print-logo-status').innerText = printSettings.officeLogo ? 'تم حفظ شعار للطباعة' : 'لا يوجد شعار محفوظ';
     toggleRole();
     fetchGlobalProducts();
     loadSuppliersList();
@@ -774,7 +776,7 @@ function printHeader(settings) {
     `;
 }
 
-function savePrintSettings() {
+async function savePrintSettings() {
     localStorage.setItem('printMarginTop', document.getElementById('print-margin-top').value || 10);
     localStorage.setItem('printMarginSide', document.getElementById('print-margin-side').value || 8);
     localStorage.setItem('printTableHeight', document.getElementById('print-table-height').value || 120);
@@ -783,8 +785,29 @@ function savePrintSettings() {
     localStorage.setItem('printOfficeSubtitle', document.getElementById('print-office-subtitle').value || 'لبيع كافة أنواع الحلويات');
     localStorage.setItem('printOfficeAddress', document.getElementById('print-office-address').value || '');
     localStorage.setItem('printOfficePhones', document.getElementById('print-office-phones').value || '');
-    localStorage.setItem('printOfficeLogo', document.getElementById('print-office-logo').value || '');
+    const logoFile = document.getElementById('print-office-logo-file').files[0];
+    if (logoFile) {
+        const logoData = await fileToDataUrl(logoFile);
+        localStorage.setItem('printOfficeLogo', logoData);
+        document.getElementById('print-logo-status').innerText = 'تم حفظ شعار للطباعة';
+    }
     alert('تم حفظ تصميم الطباعة');
+}
+
+function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function clearPrintLogo() {
+    localStorage.removeItem('printOfficeLogo');
+    document.getElementById('print-office-logo-file').value = '';
+    document.getElementById('print-logo-status').innerText = 'لا يوجد شعار محفوظ';
+    alert('تم حذف الشعار');
 }
 
 async function importBackup() {
