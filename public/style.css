@@ -425,3 +425,212 @@ button {
     margin-top: 10px;
     color: var(--text-muted);
 }
+
+/* 🗂️ النافذة المنبثقة التفصيلية (Modal) */
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.4);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    padding: 15px;
+}
+
+.modal-backdrop.show {
+    display: flex;
+    opacity: 1;
+}
+
+.modal-card {
+    background: var(--card-bg);
+    width: 100%;
+    max-width: 650px;
+    border-radius: var(--radius);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalSlideIn {
+    from { transform: translateY(15px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+    background: var(--primary-color);
+    color: white;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    font-size: 1.2rem;
+    margin: 0;
+    border-right: none;
+    padding-right: 0;
+    color: white;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.8);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.modal-close:hover {
+    color: white;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 15px 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    background: #f8fafc;
+}
+
+/* 📋 تنسيق محتوى التفاصيل الفاتورة / الوصل */
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed var(--border-color);
+    padding-bottom: 8px;
+    font-size: 0.95rem;
+}
+
+.detail-row span:first-child {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.detail-row span:last-child {
+    font-weight: bold;
+}
+
+.badge {
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    display: inline-block;
+}
+
+.badge-invoice {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.badge-payment {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.clickable-row {
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.clickable-row:hover {
+    background-color: #f8fafc;
+}
+
+.modal-edit-fields {
+    display: grid;
+    gap: 15px;
+}
+
+.modal-edit-fields label {
+    margin-top: 0;
+}
+
+.modal-items-table {
+    margin-top: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.modal-items-table th {
+    background-color: #f8fafc;
+}
+
+.modal-items-table th, .modal-items-table td {
+    padding: 10px;
+    font-size: 0.9rem;
+}
+
+/* 🔄 مؤشر حالة المزامنة والإنترنت */
+.sync-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+}
+
+.sync-badge.online {
+    background-color: #dcfce7;
+    color: #15803d;
+}
+
+.sync-badge.offline {
+    background-color: #fee2e2;
+    color: #b91c1c;
+}
+
+.sync-badge.syncing {
+    background-color: #fef9c3;
+    color: #854d0e;
+    animation: syncPulse 1.5s infinite alternate;
+}
+
+@keyframes syncPulse {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+}
+
+.unsynced-indicator {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    background-color: #ffedd5;
+    color: #c2410c;
+    border: 1px dashed #ea580c;
+    margin-right: 5px;
+    font-weight: bold;
+}
+
+.unsynced-row {
+    border-right: 4px dashed #ea580c !important;
+    background-color: #fffaf5;
+}

@@ -294,7 +294,23 @@ function safeText(value) {
 }
 
 function secureFetch(url, options = {}) {
-    return fetch(url, options);
+    if (!navigator.onLine) {
+        return Promise.reject(new Error("No internet connection (offline)"));
+    }
+    const isBackup = url.includes('/backup');
+    const timeout = isBackup ? 30000 : 3000;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    
+    return fetch(url, { ...options, signal: controller.signal })
+        .then(response => {
+            clearTimeout(id);
+            return response;
+        })
+        .catch(error => {
+            clearTimeout(id);
+            throw error;
+        });
 }
 
 function loginSystem() {
@@ -358,6 +374,8 @@ async function fetchGlobalProducts() {
         if(result.success) {
             globalProducts = result.data;
             localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to fetch global products, using cached data:", e);
@@ -382,9 +400,11 @@ async function loadNextInvoiceNumber() {
     try {
         const res = await secureFetch('/api/invoices/next-number');
         const data = await res.json();
-        if (data.success) {
+        if (data && data.success) {
             nextInvoiceNumber = data.invoice_number;
             localStorage.setItem('cached_next_invoice_number', nextInvoiceNumber);
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to load next invoice number from server:", e);
@@ -452,9 +472,42 @@ function calculateSaleTotal() {
 async function loadSaleCustomerAccount() {
     const clientName = document.getElementById('sale-client').value.trim();
     if (!clientName) return;
-    const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
-    const data = await res.json();
-    currentSaleAccount = data.account || { balance: 0 };
+    try {
+        const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
+        const data = await res.json();
+        if (data && data.success && data.account) {
+            currentSaleAccount = data.account;
+            localStorage.setItem(`cached_statement_${clientName}`, JSON.stringify(currentSaleAccount));
+        } else {
+            throw new Error("API returned success: false");
+        }
+    } catch (e) {
+        console.error("Failed to load customer account, using cached:", e);
+        const cached = localStorage.getItem(`cached_statement_${clientName}`);
+        if (cached) {
+            currentSaleAccount = JSON.parse(cached);
+        } else {
+            const cachedCusts = JSON.parse(localStorage.getItem('cached_customers')) || [];
+            const custObj = cachedCusts.find(c => c.name === clientName);
+            if (custObj) {
+                currentSaleAccount = { balance: custObj.balance };
+            } else {
+                currentSaleAccount = { balance: 0 };
+            }
+        }
+    }
+    const unsynced = getUnsyncedItems().filter(item => item.data.client_name === clientName);
+    let extraBalance = 0;
+    unsynced.forEach(item => {
+        if (item.type === 'invoice') {
+            if (item.data.payment_type !== 'cash') {
+                extraBalance += Number(item.data.final_amount) || 0;
+            }
+        } else if (item.type === 'payment') {
+            extraBalance -= Number(item.data.amount_paid) || 0;
+        }
+    });
+    currentSaleAccount.balance = Math.max(0, currentSaleAccount.balance + extraBalance);
     document.getElementById('sale-prev-balance').innerText = money(currentSaleAccount.balance);
     calculateSaleTotal();
 }
@@ -546,11 +599,23 @@ async function loadInvoices() {
     try {
         const res = await secureFetch(`/api/invoices?search=${encodeURIComponent(search)}`);
         const data = await res.json();
-        if (data && Array.isArray(data.data)) {
+        if (data && data.success && Array.isArray(data.data)) {
             invoices = data.data;
+            if (!search) {
+                localStorage.setItem('cached_invoices', JSON.stringify(invoices));
+            }
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
-        console.error("Failed to load invoices from cloud:", e);
+        console.error("Failed to load invoices from cloud, using cached:", e);
+        const cached = localStorage.getItem('cached_invoices');
+        if (cached) {
+            invoices = JSON.parse(cached);
+            if (search) {
+                invoices = invoices.filter(inv => (inv.client_name || '').includes(search) || (inv.invoice_number || '').includes(search));
+            }
+        }
     }
     
     const tbody = document.getElementById('invoices-rows');
@@ -608,9 +673,11 @@ async function loadCustomers() {
     try {
         const res = await secureFetch('/api/customers');
         const data = await res.json();
-        if (data && Array.isArray(data.data)) {
+        if (data && data.success && Array.isArray(data.data)) {
             customersList = data.data;
             localStorage.setItem('cached_customers', JSON.stringify(customersList));
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to load customers from cloud:", e);
@@ -822,9 +889,28 @@ async function submitSupplierPayment() {
 }
 
 async function loadSupplierPayments() {
-    const res = await secureFetch('/api/supplier-payments'); const data = await res.json();
-    const tbody = document.getElementById('sup-payments-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.supplier_name}</strong></td><td style="color:green; font-weight:bold;">${p.amount_paid.toLocaleString()} د.ع</td><td>${formatDateTime(p.payment_date)}</td><td>${p.notes || '—'}</td></tr>`));
+    let payments = [];
+    try {
+        const res = await secureFetch('/api/supplier-payments');
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.data)) {
+            payments = data.data;
+            localStorage.setItem('cached_supplier_payments', JSON.stringify(payments));
+        } else {
+            throw new Error("API returned success: false");
+        }
+    } catch (e) {
+        console.error("Failed to load supplier payments from cloud:", e);
+        const cached = localStorage.getItem('cached_supplier_payments');
+        if (cached) {
+            payments = JSON.parse(cached);
+        }
+    }
+    const tbody = document.getElementById('sup-payments-rows');
+    if (tbody) {
+        tbody.innerHTML = '';
+        payments.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.supplier_name}</strong></td><td style="color:green; font-weight:bold;">${(p.amount_paid || 0).toLocaleString()} د.ع</td><td>${formatDateTime(p.payment_date)}</td><td>${p.notes || '—'}</td></tr>`));
+    }
 }
 
 async function loadSuppliersList() {
@@ -832,9 +918,11 @@ async function loadSuppliersList() {
     try {
         const res = await secureFetch('/api/suppliers');
         const data = await res.json();
-        if (data && Array.isArray(data.data)) {
+        if (data && data.success && Array.isArray(data.data)) {
             suppliers = data.data;
             localStorage.setItem('cached_suppliers', JSON.stringify(suppliers));
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to load suppliers from cloud:", e);
@@ -902,11 +990,18 @@ async function loadPayments() {
     try {
         const res = await secureFetch('/api/payments');
         const data = await res.json();
-        if (data && Array.isArray(data.data)) {
+        if (data && data.success && Array.isArray(data.data)) {
             payments = data.data;
+            localStorage.setItem('cached_payments', JSON.stringify(payments));
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to load payments from cloud:", e);
+        const cached = localStorage.getItem('cached_payments');
+        if (cached) {
+            payments = JSON.parse(cached);
+        }
     }
     
     const tbody = document.getElementById('payments-rows'); 
@@ -1166,9 +1261,31 @@ function toggleCheckAllStatement(master) {
 }
 
 async function loadProducts() {
-    const res = await secureFetch('/api/products'); const data = await res.json();
-    const tbody = document.getElementById('products-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.name}</strong></td><td>${p.box_price.toLocaleString()} د.ع</td><td>${p.piece_price.toLocaleString()} د.ع</td><td>${p.stock_qty}</td><td><button class="btn-danger" onclick="deleteProduct(${p.id}, '${safeText(p.name)}')">حذف</button></td></tr>`));
+    let products = [];
+    try {
+        const res = await secureFetch('/api/products');
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.data)) {
+            products = data.data;
+            localStorage.setItem('cached_products_list', JSON.stringify(products));
+        } else {
+            throw new Error("API returned success: false");
+        }
+    } catch (e) {
+        console.error("Failed to load products:", e);
+        const cached = localStorage.getItem('cached_products_list');
+        if (cached) {
+            products = JSON.parse(cached);
+        } else {
+            const cachedG = localStorage.getItem('cached_products');
+            if (cachedG) products = JSON.parse(cachedG);
+        }
+    }
+    const tbody = document.getElementById('products-rows');
+    if (tbody) {
+        tbody.innerHTML = '';
+        products.forEach(p => tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${p.name}</strong></td><td>${p.box_price.toLocaleString()} د.ع</td><td>${p.piece_price.toLocaleString()} د.ع</td><td>${p.stock_qty}</td><td><button class="btn-danger" onclick="deleteProduct(${p.id}, '${safeText(p.name)}')">حذف</button></td></tr>`));
+    }
 }
 
 async function addProduct() {
@@ -1196,9 +1313,11 @@ async function loadReports() {
     try {
         const res = await secureFetch('/api/reports');
         const data = await res.json();
-        if (data && data.reports) {
+        if (data && data.success && data.reports) {
             reports = data.reports;
             localStorage.setItem('cached_reports', JSON.stringify(reports));
+        } else {
+            throw new Error("API returned success: false");
         }
     } catch (e) {
         console.error("Failed to load reports from cloud:", e);

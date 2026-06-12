@@ -28,9 +28,27 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error('Supabase settings are missing. Please set SUPABASE_URL and SUPABASE_ANON_KEY.');
 }
 
+const customFetch = (url, options = {}) => {
+    const timeout = 3000; // 3 seconds
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    return fetch(url, { ...options, signal: controller.signal })
+        .then(res => {
+            clearTimeout(id);
+            return res;
+        })
+        .catch(err => {
+            clearTimeout(id);
+            throw err;
+        });
+};
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     realtime: {
         transport: WebSocket
+    },
+    global: {
+        fetch: customFetch
     }
 });
 
@@ -62,6 +80,8 @@ async function getCustomerAccount(clientName) {
     const balance = Math.max(0, totalInvoices - totalPayments);
     const operations = [
         ...invoiceRows.map(inv => ({
+            id: inv.id,
+            rawType: 'invoice',
             type: inv.payment_type === 'cash' ? 'فاتورة نقدية' : 'فاتورة دين',
             number: inv.invoice_number,
             debit: inv.payment_type === 'cash' ? 0 : toNumber(inv.final_amount),
@@ -70,6 +90,8 @@ async function getCustomerAccount(clientName) {
             date: inv.created_at
         })),
         ...paymentRows.map(pay => ({
+            id: pay.id,
+            rawType: 'payment',
             type: 'واصل تسديد',
             number: `PAY-${pay.id}`,
             debit: 0,
@@ -116,12 +138,24 @@ app.post('/api/verify-token', (req, res) => {
 });
 
 app.get('/api/products/search', checkAuth, async (req, res) => {
-    const { data, error } = await supabase.from('products').select('*');
-    res.json({ success: !error, data: data || [] });
+    try {
+        const { data, error } = await supabase.from('products').select('*');
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching products/search:", err);
+        res.json({ success: false, data: [] });
+    }
 });
 
 app.get('/api/invoices/next-number', checkAuth, async (req, res) => {
-    res.json({ success: true, invoice_number: await getNextInvoiceNumber() });
+    try {
+        const invoice_number = await getNextInvoiceNumber();
+        res.json({ success: true, invoice_number });
+    } catch (err) {
+        console.error("Error fetching next-number:", err);
+        res.json({ success: false });
+    }
 });
 
 app.post('/api/invoices', checkAuth, async (req, res) => {
@@ -171,43 +205,78 @@ app.post('/api/payments', checkAuth, async (req, res) => {
 });
 
 app.get('/api/payments', checkAuth, async (req, res) => {
-    const { data } = await supabase.from('debt_payments').select('*').order('id', { ascending: false });
-    res.json({ success: true, data: data || [] });
+    try {
+        const { data, error } = await supabase.from('debt_payments').select('*').order('id', { ascending: false });
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching payments:", err);
+        res.json({ success: false, data: [] });
+    }
+});
+
+app.get('/api/payments/:id', checkAuth, async (req, res) => {
+    const { data, error } = await supabase.from('debt_payments').select('*').eq('id', req.params.id).single();
+    res.json({ success: !error, payment: data });
+});
+
+app.put('/api/payments/:id', checkAuth, async (req, res) => {
+    const { client_name, amount_paid, notes } = req.body;
+    if (!client_name || !amount_paid) return res.json({ success: false, message: 'أدخل اسم الزبون والمبلغ' });
+    const { error } = await supabase.from('debt_payments').update({ client_name, amount_paid: toNumber(amount_paid), notes }).eq('id', req.params.id);
+    res.json({ success: !error, message: error ? 'فشل تعديل الوصل' : 'تم تعديل وصل القبض بنجاح' });
+});
+
+app.delete('/api/payments/:id', checkAuth, async (req, res) => {
+    const { error } = await supabase.from('debt_payments').delete().eq('id', req.params.id);
+    res.json({ success: !error, message: error ? 'فشل حذف الوصل' : 'تم حذف الوصل بنجاح' });
 });
 
 app.get('/api/customers', checkAuth, async (req, res) => {
-    const { data: invoices } = await supabase.from('invoices').select('client_name, final_amount, payment_type, created_at');
-    const { data: payments } = await supabase.from('debt_payments').select('client_name, amount_paid, payment_date');
-    const map = new Map();
-    function getRow(name) {
-        const key = (name || '').trim();
-        if (!key) return null;
-        if (!map.has(key)) map.set(key, { name: key, invoiceCount: 0, totalInvoices: 0, totalPayments: 0, balance: 0, lastDate: null });
-        return map.get(key);
+    try {
+        const { data: invoices, error: invError } = await supabase.from('invoices').select('client_name, final_amount, payment_type, created_at');
+        if (invError) throw invError;
+        const { data: payments, error: payError } = await supabase.from('debt_payments').select('client_name, amount_paid, payment_date');
+        if (payError) throw payError;
+        const map = new Map();
+        function getRow(name) {
+            const key = (name || '').trim();
+            if (!key) return null;
+            if (!map.has(key)) map.set(key, { name: key, invoiceCount: 0, totalInvoices: 0, totalPayments: 0, balance: 0, lastDate: null });
+            return map.get(key);
+        }
+        (invoices || []).forEach(inv => {
+            const row = getRow(inv.client_name);
+            if (!row) return;
+            row.invoiceCount += 1;
+            if (inv.payment_type !== 'cash') row.totalInvoices += toNumber(inv.final_amount);
+            if (!row.lastDate || new Date(inv.created_at) > new Date(row.lastDate)) row.lastDate = inv.created_at;
+        });
+        (payments || []).forEach(pay => {
+            const row = getRow(pay.client_name);
+            if (!row) return;
+            row.totalPayments += toNumber(pay.amount_paid);
+            if (!row.lastDate || new Date(pay.payment_date) > new Date(row.lastDate)) row.lastDate = pay.payment_date;
+        });
+        const customers = [...map.values()].map(row => ({
+            ...row,
+            balance: Math.max(0, row.totalInvoices - row.totalPayments)
+        })).sort((a, b) => new Date(b.lastDate || 0) - new Date(a.lastDate || 0));
+        res.json({ success: true, data: customers });
+    } catch (err) {
+        console.error("Error fetching customers:", err);
+        res.json({ success: false, data: [] });
     }
-    (invoices || []).forEach(inv => {
-        const row = getRow(inv.client_name);
-        if (!row) return;
-        row.invoiceCount += 1;
-        if (inv.payment_type !== 'cash') row.totalInvoices += toNumber(inv.final_amount);
-        if (!row.lastDate || new Date(inv.created_at) > new Date(row.lastDate)) row.lastDate = inv.created_at;
-    });
-    (payments || []).forEach(pay => {
-        const row = getRow(pay.client_name);
-        if (!row) return;
-        row.totalPayments += toNumber(pay.amount_paid);
-        if (!row.lastDate || new Date(pay.payment_date) > new Date(row.lastDate)) row.lastDate = pay.payment_date;
-    });
-    const customers = [...map.values()].map(row => ({
-        ...row,
-        balance: Math.max(0, row.totalInvoices - row.totalPayments)
-    })).sort((a, b) => new Date(b.lastDate || 0) - new Date(a.lastDate || 0));
-    res.json({ success: true, data: customers });
 });
 
 app.get('/api/customers/:name/account', checkAuth, async (req, res) => {
-    const account = await getCustomerAccount(req.params.name);
-    res.json({ success: true, account });
+    try {
+        const account = await getCustomerAccount(req.params.name);
+        res.json({ success: true, account });
+    } catch (err) {
+        console.error("Error fetching customer account:", err);
+        res.json({ success: false });
+    }
 });
 
 app.delete('/api/customers/:name', checkAuth, async (req, res) => {
@@ -240,16 +309,28 @@ app.post('/api/supplier-payments', checkAuth, async (req, res) => {
 });
 
 app.get('/api/supplier-payments', checkAuth, async (req, res) => {
-    const { data } = await supabase.from('supplier_payments').select('*').order('id', { ascending: false });
-    res.json({ success: true, data: data || [] });
+    try {
+        const { data, error } = await supabase.from('supplier_payments').select('*').order('id', { ascending: false });
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching supplier-payments:", err);
+        res.json({ success: false, data: [] });
+    }
 });
 
 app.get('/api/invoices', checkAuth, async (req, res) => {
-    const search = req.query.search || '';
-    let query = supabase.from('invoices').select('*').order('id', { ascending: false });
-    if(search) query = query.ilike('client_name', `%${search}%`);
-    const { data } = await query;
-    res.json({ success: true, data: data || [] });
+    try {
+        const search = req.query.search || '';
+        let query = supabase.from('invoices').select('*').order('id', { ascending: false });
+        if(search) query = query.ilike('client_name', `%${search}%`);
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching invoices:", err);
+        res.json({ success: false, data: [] });
+    }
 });
 
 app.get('/api/invoices/:id', checkAuth, async (req, res) => {
@@ -290,8 +371,14 @@ app.post('/api/invoices/print/:id', checkAuth, async (req, res) => {
 });
 
 app.get('/api/products', checkAuth, async (req, res) => {
-    const { data } = await supabase.from('products').select('*');
-    res.json({ data: data || [] });
+    try {
+        const { data, error } = await supabase.from('products').select('*');
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching products:", err);
+        res.json({ success: false, data: [] });
+    }
 });
 app.post('/api/products', checkAuth, async (req, res) => {
     const { name, box_price, piece_price, stock_qty } = req.body;
@@ -304,8 +391,14 @@ app.delete('/api/products/:id', checkAuth, async (req, res) => {
 });
 
 app.get('/api/suppliers', checkAuth, async (req, res) => {
-    const { data } = await supabase.from('suppliers').select('*');
-    res.json({ data: data || [] });
+    try {
+        const { data, error } = await supabase.from('suppliers').select('*');
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error("Error fetching suppliers:", err);
+        res.json({ success: false, data: [] });
+    }
 });
 app.post('/api/suppliers', checkAuth, async (req, res) => {
     const { name, goods_type, current_debts } = req.body;
@@ -314,11 +407,18 @@ app.post('/api/suppliers', checkAuth, async (req, res) => {
 });
 
 app.get('/api/reports', checkAuth, async (req, res) => {
-    const { data: invs } = await supabase.from('invoices').select('final_amount');
-    const { data: pays } = await supabase.from('debt_payments').select('amount_paid');
-    const totalSales = invs?.reduce((sum, i) => sum + i.final_amount, 0) || 0;
-    const totalReceipts = pays?.reduce((sum, p) => sum + p.amount_paid, 0) || 0;
-    res.json({ success: true, reports: { totalSales, totalDebts: Math.max(0, totalSales - totalReceipts) } });
+    try {
+        const { data: invs, error: invError } = await supabase.from('invoices').select('final_amount');
+        if (invError) throw invError;
+        const { data: pays, error: payError } = await supabase.from('debt_payments').select('amount_paid');
+        if (payError) throw payError;
+        const totalSales = invs?.reduce((sum, i) => sum + i.final_amount, 0) || 0;
+        const totalReceipts = pays?.reduce((sum, p) => sum + p.amount_paid, 0) || 0;
+        res.json({ success: true, reports: { totalSales, totalDebts: Math.max(0, totalSales - totalReceipts) } });
+    } catch (err) {
+        console.error("Error fetching reports:", err);
+        res.json({ success: false, reports: { totalSales: 0, totalDebts: 0 } });
+    }
 });
 
 app.get('/api/backup', (req, res) => res.json({ success: true, message: "🛡️ نظام السحاب مؤمن تلقائياً!" }));
