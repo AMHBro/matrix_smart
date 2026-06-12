@@ -393,3 +393,35 @@ button {
         font-size: 0.8rem;
     }
 }
+
+.customer-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 15px;
+}
+
+.customer-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.customer-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 18px rgba(0,0,0,0.06);
+}
+
+.customer-card h3 {
+    color: var(--primary-color);
+    margin-bottom: 12px;
+}
+
+.customer-card small {
+    display: block;
+    margin-top: 10px;
+    color: var(--text-muted);
+}

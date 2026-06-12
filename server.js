@@ -2,10 +2,15 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 const app = express();
 
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
+const envPaths = [
+    path.join(__dirname, '.env'),
+    process.resourcesPath ? path.join(process.resourcesPath, '.env') : ''
+].filter(Boolean);
+const envPath = envPaths.find(filePath => fs.existsSync(filePath));
+if (envPath) {
     fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach(line => {
         const match = line.match(/^([^#=\s]+)\s*=\s*(.*)$/);
         if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
@@ -23,7 +28,11 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     throw new Error('Supabase settings are missing. Please set SUPABASE_URL and SUPABASE_ANON_KEY.');
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    realtime: {
+        transport: WebSocket
+    }
+});
 
 function toNumber(value) {
     return Number(value) || 0;
@@ -88,6 +97,13 @@ async function getNextInvoiceNumber() {
     return String(maxNumber + 1);
 }
 
+async function invoiceNumberExists(invoiceNumber, excludeId = null) {
+    let query = supabase.from('invoices').select('id').eq('invoice_number', invoiceNumber).limit(1);
+    if (excludeId) query = query.neq('id', excludeId);
+    const { data } = await query;
+    return (data || []).length > 0;
+}
+
 // 🔓 تم إلغاء الحماية لفتح النظام مباشرة على Vercel
 function checkAuth(req, res, next) {
     return next(); // السماح بالمرور الفوري لجميع الأجهزة دون قيود
@@ -104,13 +120,19 @@ app.get('/api/products/search', checkAuth, async (req, res) => {
     res.json({ success: !error, data: data || [] });
 });
 
+app.get('/api/invoices/next-number', checkAuth, async (req, res) => {
+    res.json({ success: true, invoice_number: await getNextInvoiceNumber() });
+});
+
 app.post('/api/invoices', checkAuth, async (req, res) => {
-    const { client_name, total_amount, discount, final_amount, payment_type, notes, device_type, items } = req.body;
+    const { invoice_number: requestedNumber, client_name, total_amount, discount, final_amount, payment_type, notes, device_type, items } = req.body;
     if (!client_name || !Array.isArray(items) || items.length === 0) {
         return res.json({ success: false, message: "يرجى إدخال اسم العميل وتفاصيل المواد قبل الحفظ" });
     }
 
-    const invoice_number = await getNextInvoiceNumber();
+    const invoice_number = String(requestedNumber || await getNextInvoiceNumber()).trim();
+    if (!invoice_number) return res.json({ success: false, message: 'رقم الفاتورة غير صحيح' });
+    if (await invoiceNumberExists(invoice_number)) return res.json({ success: false, message: 'رقم الفاتورة مستخدم سابقاً' });
 
     const accountBefore = await getCustomerAccount(client_name);
     const previous_balance = accountBefore.balance;
@@ -151,6 +173,36 @@ app.post('/api/payments', checkAuth, async (req, res) => {
 app.get('/api/payments', checkAuth, async (req, res) => {
     const { data } = await supabase.from('debt_payments').select('*').order('id', { ascending: false });
     res.json({ success: true, data: data || [] });
+});
+
+app.get('/api/customers', checkAuth, async (req, res) => {
+    const { data: invoices } = await supabase.from('invoices').select('client_name, final_amount, payment_type, created_at');
+    const { data: payments } = await supabase.from('debt_payments').select('client_name, amount_paid, payment_date');
+    const map = new Map();
+    function getRow(name) {
+        const key = (name || '').trim();
+        if (!key) return null;
+        if (!map.has(key)) map.set(key, { name: key, invoiceCount: 0, totalInvoices: 0, totalPayments: 0, balance: 0, lastDate: null });
+        return map.get(key);
+    }
+    (invoices || []).forEach(inv => {
+        const row = getRow(inv.client_name);
+        if (!row) return;
+        row.invoiceCount += 1;
+        if (inv.payment_type !== 'cash') row.totalInvoices += toNumber(inv.final_amount);
+        if (!row.lastDate || new Date(inv.created_at) > new Date(row.lastDate)) row.lastDate = inv.created_at;
+    });
+    (payments || []).forEach(pay => {
+        const row = getRow(pay.client_name);
+        if (!row) return;
+        row.totalPayments += toNumber(pay.amount_paid);
+        if (!row.lastDate || new Date(pay.payment_date) > new Date(row.lastDate)) row.lastDate = pay.payment_date;
+    });
+    const customers = [...map.values()].map(row => ({
+        ...row,
+        balance: Math.max(0, row.totalInvoices - row.totalPayments)
+    })).sort((a, b) => new Date(b.lastDate || 0) - new Date(a.lastDate || 0));
+    res.json({ success: true, data: customers });
 });
 
 app.get('/api/customers/:name/account', checkAuth, async (req, res) => {
@@ -205,6 +257,31 @@ app.get('/api/invoices/:id', checkAuth, async (req, res) => {
     const { data: items } = await supabase.from('invoice_items').select('*').eq('invoice_id', req.params.id);
     const account = await getCustomerAccount(invoice?.client_name);
     res.json({ success: true, invoice, items: items || [], account });
+});
+
+app.put('/api/invoices/:id', checkAuth, async (req, res) => {
+    const { invoice_number, client_name, total_amount, discount, final_amount, payment_type, notes, device_type, items } = req.body;
+    if (!invoice_number || !client_name || !Array.isArray(items) || items.length === 0) return res.json({ success: false, message: 'بيانات الفاتورة غير مكتملة' });
+    if (await invoiceNumberExists(String(invoice_number).trim(), req.params.id)) return res.json({ success: false, message: 'رقم الفاتورة مستخدم سابقاً' });
+    const { error: invError } = await supabase.from('invoices').update({ invoice_number, client_name, total_amount, discount, final_amount, payment_type, notes, device_type }).eq('id', req.params.id);
+    if (invError) return res.json({ success: false, message: 'فشل تعديل الفاتورة' });
+    await supabase.from('invoice_items').delete().eq('invoice_id', req.params.id);
+    const bulkItems = items.filter(item => item.name && item.qty && item.price && item.total).map(item => ({
+        invoice_id: req.params.id,
+        item_name: item.name,
+        unit_type: item.unit,
+        quantity: item.qty,
+        price: item.price,
+        row_total: item.total
+    }));
+    const { error: itemsError } = await supabase.from('invoice_items').insert(bulkItems);
+    res.json({ success: !itemsError, message: itemsError ? 'فشل تعديل تفاصيل الفاتورة' : 'تم تعديل الفاتورة بنجاح' });
+});
+
+app.delete('/api/invoices/:id', checkAuth, async (req, res) => {
+    await supabase.from('invoice_items').delete().eq('invoice_id', req.params.id);
+    const { error } = await supabase.from('invoices').delete().eq('id', req.params.id);
+    res.json({ success: !error, message: error ? 'فشل حذف الفاتورة' : 'تم حذف الفاتورة' });
 });
 
 app.post('/api/invoices/print/:id', checkAuth, async (req, res) => {
@@ -277,7 +354,14 @@ app.post('/api/backup/import', checkAuth, async (req, res) => {
     res.json({ success: true, result });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 السيرفر يعمل ومفتوح للجميع على منفذ: ${PORT}`);
-});
+function startServer(port = process.env.PORT || 3000) {
+    return app.listen(port, () => {
+        console.log('Smart Maktab server is running on port: ' + port);
+    });
+}
+
+if (require.main === module) {
+    startServer();
+}
+
+module.exports = { app, startServer };

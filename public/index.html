@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -21,13 +21,19 @@
     <header>
         <div class="brand-zone">
             <h2>نظام إدارة الجملة 📦</h2>
-            <select id="device-role" onchange="toggleRole()">
-                <option value="node">جهاز ملحق (تنظيم قوائم)</option>
-                <option value="master">جهاز أساسي (إدارة وطباعة)</option>
-            </select>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span id="sync-status-badge" class="sync-badge online">
+                    <span class="sync-dot">●</span> <span class="sync-text">متصل بالسحاب</span>
+                </span>
+                <select id="device-role" onchange="toggleRole()">
+                    <option value="node">جهاز ملحق (تنظيم قوائم)</option>
+                    <option value="master">جهاز أساسي (إدارة وطباعة)</option>
+                </select>
+            </div>
         </div>
         <nav class="nav-tabs">
             <button class="tab-btn active" onclick="switchTab('sale-tab', event)">قائمة بيع</button>
+            <button class="tab-btn master-only" onclick="switchTab('customers-tab', event)">الزبائن</button>
             <button class="tab-btn master-only" onclick="switchTab('invoices-tab', event)">الفواتير العام</button>
             <button class="tab-btn master-only" onclick="switchTab('payments-tab', event)">تسديد الزبائن</button>
             <button class="tab-btn master-only" onclick="switchTab('sup-payments-tab', event)">تسديدات الشركات</button>
@@ -58,6 +64,8 @@
             
             <div class="summary-card">
                 <h3>حساب الفاتورة</h3>
+                <label>رقم الفاتورة:</label>
+                <input type="text" id="sale-invoice-number" placeholder="يظهر تلقائياً ويمكن تعديله">
                 <label>اسم العميل / المحل:</label>
                 <input type="text" id="sale-client" placeholder="اسم المحل..." onblur="loadSaleCustomerAccount()">
                 <div class="total-view" id="sale-total">0 د.ع</div>
@@ -80,6 +88,15 @@
         </div>
     </section>
 
+    <section id="customers-tab" class="tab-content" style="display:none;">
+        <div class="action-bar">
+            <h3>الزبائن والحسابات</h3>
+            <input type="text" id="search-customer" placeholder="🔍 ابحث عن زبون..." oninput="loadCustomers()">
+            <button class="btn-secondary" onclick="loadCustomers()">تحديث</button>
+        </div>
+        <div id="customers-cards" class="customer-cards"></div>
+    </section>
+
     <section id="invoices-tab" class="tab-content" style="display:none;">
         <div class="action-bar">
             <h3>سجل فواتير البيع العام</h3>
@@ -89,7 +106,7 @@
         <table>
             <thead>
                 <tr>
-                    <th>رقم الفاتورة</th><th>العميل</th><th>المبلغ الكلي</th><th>نوع الدفع</th><th>التاريخ والوقت</th><th>ملاحظات</th><th>الجهاز</th><th>أمر الطباعة</th>
+                    <th>رقم الفاتورة</th><th>العميل</th><th>المبلغ الكلي</th><th>نوع الدفع</th><th>التاريخ والوقت</th><th>ملاحظات</th><th>الجهاز</th><th>الأوامر</th>
                 </tr>
             </thead>
             <tbody id="invoices-rows"></tbody>
@@ -126,7 +143,7 @@
             </div>
             <button class="btn-secondary" style="margin-top:1rem;" onclick="printCustomerStatement()">طباعة بيان الحساب 🖨️</button>
             <table>
-                <thead><tr><th>النوع</th><th>الرقم</th><th>عليه</th><th>واصل</th><th>التاريخ والوقت</th><th>ملاحظات</th></tr></thead>
+                <thead><tr><th style="width:40px;"><input type="checkbox" id="check-all-stmt" checked onclick="toggleCheckAllStatement(this)"></th><th>النوع</th><th>الرقم</th><th>عليه</th><th>واصل</th><th>التاريخ والوقت</th><th>ملاحظات</th></tr></thead>
                 <tbody id="statement-rows"></tbody>
             </table>
         </div>
@@ -239,6 +256,22 @@
             </div>
         </div>
     </section>
+    
+    <!-- 🗂️ النافذة المنبثقة للتفاصيل والتعديل (Operation Details & Edit Modal) -->
+    <div class="modal-backdrop" id="operation-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>تفاصيل الحركة المالية</h3>
+                <button class="modal-close" onclick="closeOperationModal()">×</button>
+            </div>
+            <div class="modal-body" id="modal-content">
+                <!-- يتم تحميل المحتوى برمجياً هنا -->
+            </div>
+            <div class="modal-footer" id="modal-actions">
+                <!-- أزرار التحكم والعمليات -->
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -308,6 +341,8 @@ function switchTab(tabId, eventObj) {
     if(eventObj && eventObj.currentTarget) eventObj.currentTarget.classList.add('active');
     else document.querySelector(`.tab-btn[onclick*="${tabId}"]`)?.classList.add('active');
 
+    if (tabId === 'customers-tab') loadCustomers();
+    if (tabId === 'sale-tab') loadNextInvoiceNumber();
     if (tabId === 'invoices-tab') loadInvoices();
     if (tabId === 'products-tab') loadProducts();
     if (tabId === 'suppliers-tab') loadSuppliersList();
@@ -317,14 +352,51 @@ function switchTab(tabId, eventObj) {
 }
 
 async function fetchGlobalProducts() {
-    const res = await secureFetch('/api/products/search');
-    const result = await res.json();
-    if(result.success) {
-        globalProducts = result.data;
-        const dl = document.getElementById('products-datalist');
+    try {
+        const res = await secureFetch('/api/products/search');
+        const result = await res.json();
+        if(result.success) {
+            globalProducts = result.data;
+            localStorage.setItem('cached_products', JSON.stringify(globalProducts));
+        }
+    } catch (e) {
+        console.error("Failed to fetch global products, using cached data:", e);
+        const cached = localStorage.getItem('cached_products');
+        if (cached) {
+            globalProducts = JSON.parse(cached);
+        }
+    }
+    
+    const dl = document.getElementById('products-datalist');
+    if (dl && globalProducts) {
         dl.innerHTML = '';
         globalProducts.forEach(p => dl.insertAdjacentHTML('beforeend', `<option value="${p.name}">`));
     }
+}
+
+async function loadNextInvoiceNumber() {
+    const input = document.getElementById('sale-invoice-number');
+    if (!input || input.value) return;
+    
+    let nextInvoiceNumber = '';
+    try {
+        const res = await secureFetch('/api/invoices/next-number');
+        const data = await res.json();
+        if (data.success) {
+            nextInvoiceNumber = data.invoice_number;
+            localStorage.setItem('cached_next_invoice_number', nextInvoiceNumber);
+        }
+    } catch (e) {
+        console.error("Failed to load next invoice number from server:", e);
+        const cached = localStorage.getItem('cached_next_invoice_number');
+        if (cached) {
+            nextInvoiceNumber = cached;
+        } else {
+            nextInvoiceNumber = '1001';
+        }
+    }
+    
+    if (input) input.value = nextInvoiceNumber;
 }
 
 function addSaleRow() {
@@ -415,53 +487,274 @@ async function submitInvoice() {
     
     let sub = items.reduce((a, b) => a + b.total, 0);
     let disc = parseFloat(document.getElementById('sale-discount').value) || 0;
+    const clientName = document.getElementById('sale-client').value;
+    const invNum = document.getElementById('sale-invoice-number').value || ('OFF-' + Date.now());
 
-    const res = await secureFetch('/api/invoices', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            client_name: document.getElementById('sale-client').value, total_amount: sub, discount: disc, final_amount: sub - disc,
-            payment_type: document.getElementById('sale-payment').value, notes: document.getElementById('sale-notes').value,
-            device_type: currentRole === 'master' ? 'أساسي' : 'ملحق',
-            items
-        })
-    });
-    const data = await res.json(); alert(data.message);
-    if (data.success && data.invoiceId) printInvoice(data.invoiceId);
-    document.getElementById('sale-rows').innerHTML = ''; document.getElementById('sale-client').value = ''; document.getElementById('sale-notes').value = '';
+    const invoiceData = {
+        invoice_number: invNum,
+        client_name: clientName,
+        total_amount: sub,
+        discount: disc,
+        final_amount: sub - disc,
+        payment_type: document.getElementById('sale-payment').value,
+        notes: document.getElementById('sale-notes').value,
+        device_type: currentRole === 'master' ? 'أساسي' : 'ملحق',
+        items
+    };
+
+    try {
+        if (!navigator.onLine) throw new Error("offline");
+
+        const res = await secureFetch('/api/invoices', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(invoiceData)
+        });
+        const data = await res.json();
+        alert(data.message);
+        if (data.success && data.invoiceId) printInvoice(data.invoiceId);
+    } catch (e) {
+        console.error("Online invoice save failed, saving offline:", e);
+        queueUnsynced('invoice', invoiceData);
+        alert('تم حفظ الفاتورة محلياً لعدم وجود اتصال بالإنترنت. ستتم مزامنتها تلقائياً عند عودة الاتصال.');
+        
+        // Print locally
+        const lastUnsynced = getUnsyncedItems();
+        const localInvoice = lastUnsynced[lastUnsynced.length - 1];
+        if (localInvoice) {
+            printInvoice(localInvoice.id);
+        }
+        
+        // Increment cached next invoice number if numeric
+        const nextNum = parseInt(localStorage.getItem('cached_next_invoice_number')) || 1000;
+        localStorage.setItem('cached_next_invoice_number', nextNum + 1);
+    }
+
+    document.getElementById('sale-rows').innerHTML = ''; 
+    document.getElementById('sale-client').value = ''; 
+    document.getElementById('sale-notes').value = ''; 
+    document.getElementById('sale-invoice-number').value = '';
     currentSaleAccount = { balance: 0 };
     document.getElementById('sale-prev-balance').innerText = money(0);
-    addSaleRow(); calculateSaleTotal(); fetchGlobalProducts();
+    addSaleRow(); calculateSaleTotal(); fetchGlobalProducts(); loadNextInvoiceNumber();
 }
 
 async function loadInvoices() {
-    const search = document.getElementById('search-invoice').value;
-    const res = await secureFetch(`/api/invoices?search=${encodeURIComponent(search)}`); const data = await res.json();
-    const tbody = document.getElementById('invoices-rows'); tbody.innerHTML = '';
-    data.data.forEach(inv => {
-        tbody.insertAdjacentHTML('beforeend', `
-            <tr>
-                <td>#${inv.invoice_number}</td><td><strong>${inv.client_name}</strong></td><td>${inv.final_amount.toLocaleString()} د.ع</td>
-                <td>${inv.payment_type === 'cash' ? '💵 نقدي':'⚠️ دين'}</td><td>${formatDateTime(inv.created_at)}</td><td><small>${inv.notes || '—'}</small></td><td>${inv.device_type}</td>
-                <td><button class="btn-secondary" onclick="printInvoice(${inv.id})">طباعة الفاتورة 🖨️</button></td>
-            </tr>
-        `);
+    const search = (document.getElementById('search-invoice')?.value || '').trim();
+    let invoices = [];
+    
+    try {
+        const res = await secureFetch(`/api/invoices?search=${encodeURIComponent(search)}`);
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+            invoices = data.data;
+        }
+    } catch (e) {
+        console.error("Failed to load invoices from cloud:", e);
+    }
+    
+    const tbody = document.getElementById('invoices-rows');
+    if (tbody) {
+        tbody.innerHTML = '';
+        
+        const unsynced = getUnsyncedItems()
+            .filter(item => item.type === 'invoice')
+            .filter(item => !search || item.data.client_name.includes(search) || item.data.invoice_number.includes(search));
+            
+        const displayInvoices = [
+            ...unsynced.map(item => ({
+                id: item.id,
+                invoice_number: item.data.invoice_number + ' (محلي ⏳)',
+                client_name: item.data.client_name,
+                final_amount: item.data.final_amount,
+                payment_type: item.data.payment_type,
+                created_at: item.created_at,
+                notes: item.data.notes,
+                device_type: item.data.device_type,
+                isLocal: true
+            })),
+            ...invoices
+        ];
+        
+        displayInvoices.forEach(inv => {
+            const btnDetails = `<button class="btn-secondary" onclick="openOperationDetails('invoice', '${inv.id}')">تفاصيل</button>`;
+                
+            const btnPrint = inv.isLocal
+                ? `<button class="btn-secondary" onclick="printInvoice('${inv.id}')">طباعة</button>`
+                : `<button class="btn-secondary" onclick="printInvoice(${inv.id})">طباعة</button>`;
+                
+            const btnDelete = inv.isLocal
+                ? `<button class="btn-danger" onclick="deleteActiveOperationOffline('${inv.id}')">حذف</button>`
+                : `<button class="btn-danger" onclick="deleteInvoice(${inv.id})">حذف</button>`;
+                
+            tbody.insertAdjacentHTML('beforeend', `
+                <tr style="${inv.isLocal ? 'background-color: #fbf5e6;' : ''}">
+                    <td>#${inv.invoice_number}</td><td><strong>${inv.client_name}</strong></td><td>${inv.final_amount.toLocaleString()} د.ع</td>
+                    <td>${inv.payment_type === 'cash' ? '💵 نقدي':'⚠️ دين'}</td><td>${formatDateTime(inv.created_at)}</td><td><small>${inv.notes || '—'}</small></td><td>${inv.device_type}</td>
+                    <td>
+                        ${btnDetails}
+                        ${btnPrint}
+                        ${btnDelete}
+                    </td>
+                </tr>
+            `);
+        });
+    }
+}
+
+async function loadCustomers() {
+    const search = (document.getElementById('search-customer')?.value || '').trim();
+    let customersList = [];
+    try {
+        const res = await secureFetch('/api/customers');
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+            customersList = data.data;
+            localStorage.setItem('cached_customers', JSON.stringify(customersList));
+        }
+    } catch (e) {
+        console.error("Failed to load customers from cloud:", e);
+        const cached = localStorage.getItem('cached_customers');
+        if (cached) {
+            customersList = JSON.parse(cached);
+        }
+    }
+    
+    const unsynced = getUnsyncedItems();
+    unsynced.forEach(item => {
+        const clientName = item.data.client_name;
+        if (!clientName) return;
+        
+        let c = customersList.find(x => x.name === clientName);
+        if (!c) {
+            c = { name: clientName, invoiceCount: 0, totalInvoices: 0, totalPayments: 0, balance: 0, lastDate: item.created_at };
+            customersList.push(c);
+        }
+        
+        if (item.type === 'invoice') {
+            const finalAmt = Number(item.data.final_amount) || 0;
+            const isCash = item.data.payment_type === 'cash';
+            c.invoiceCount += 1;
+            if (!isCash) {
+                c.totalInvoices = (c.totalInvoices || 0) + finalAmt;
+                c.balance = (c.balance || 0) + finalAmt;
+            }
+            if (new Date(item.created_at) > new Date(c.lastDate || 0)) c.lastDate = item.created_at;
+        } else if (item.type === 'payment') {
+            const paidAmt = Number(item.data.amount_paid) || 0;
+            c.totalPayments = (c.totalPayments || 0) + paidAmt;
+            c.balance = Math.max(0, (c.balance || 0) - paidAmt);
+            if (new Date(item.created_at) > new Date(c.lastDate || 0)) c.lastDate = item.created_at;
+        }
     });
+
+    customersList.sort((a, b) => new Date(b.lastDate || 0) - new Date(a.lastDate || 0));
+
+    const box = document.getElementById('customers-cards');
+    if (box) {
+        box.innerHTML = '';
+        customersList
+            .filter(c => !search || c.name.includes(search))
+            .forEach(c => {
+                box.insertAdjacentHTML('beforeend', `
+                    <div class="customer-card" onclick="openCustomer('${safeText(c.name)}')">
+                        <h3>${c.name}</h3>
+                        <div class="account-grid">
+                            <div><span>عدد القوائم</span><strong>${c.invoiceCount}</strong></div>
+                            <div><span>الواصل</span><strong>${money(c.totalPayments)}</strong></div>
+                            <div><span>المطلوب</span><strong>${money(c.balance)}</strong></div>
+                        </div>
+                        <small>آخر حركة: ${formatDateTime(c.lastDate)}</small>
+                    </div>
+                `);
+            });
+    }
+}
+
+async function openCustomer(name) {
+    document.getElementById('pay-client').value = name;
+    await loadCustomerStatement();
+    document.getElementById('search-invoice').value = name;
+    switchTab('payments-tab');
+}
+
+async function viewInvoiceDetails(id) {
+    const res = await secureFetch(`/api/invoices/${id}`);
+    const data = await res.json();
+    if (!data.success || !data.invoice) return alert('تعذر عرض تفاصيل الفاتورة');
+    const items = (data.items || []).map(item => `${item.item_name} - ${unitLabel(item.unit_type)} - ${item.quantity} × ${money(item.price)} = ${money(item.row_total)}`).join('\n');
+    alert(`فاتورة رقم: ${data.invoice.invoice_number}\nالزبون: ${data.invoice.client_name}\nالمبلغ: ${money(data.invoice.final_amount)}\nالنوع: ${data.invoice.payment_type === 'cash' ? 'نقدي' : 'دين'}\n\nالمواد:\n${items || 'لا توجد مواد'}`);
+}
+
+async function deleteInvoice(id) {
+    if (!confirm('هل تريد حذف هذه الفاتورة؟')) return;
+    const res = await secureFetch(`/api/invoices/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    alert(data.message || (data.success ? 'تم الحذف' : 'فشل الحذف'));
+    loadInvoices();
+    loadCustomers();
+    loadReports();
+}
+
+function unitLabel(unit) {
+    if (unit === 'box') return 'كارتون';
+    if (unit === 'piece') return 'قطعة';
+    return unit || '—';
 }
 
 async function printInvoice(id) {
-    const res = await secureFetch(`/api/invoices/${id}`); const data = await res.json();
-    if(!data.success) return;
+    let invoice = null;
+    let items = [];
+    let previous = 0;
+    let isLocal = false;
+
+    if (String(id).startsWith('local-')) {
+        const localItem = getUnsyncedItems().find(item => item.id === id);
+        if (!localItem) return alert("تعذر العثور على الفاتورة المحلية للطباعة");
+        invoice = {
+            invoice_number: localItem.data.invoice_number,
+            client_name: localItem.data.client_name,
+            total_amount: localItem.data.total_amount,
+            discount: localItem.data.discount,
+            final_amount: localItem.data.final_amount,
+            payment_type: localItem.data.payment_type,
+            notes: localItem.data.notes,
+            created_at: localItem.created_at
+        };
+        items = localItem.data.items.map(item => ({
+            item_name: item.name,
+            unit_type: item.unit,
+            quantity: item.qty,
+            price: item.price,
+            row_total: item.total
+        }));
+        isLocal = true;
+        
+        const cachedCusts = JSON.parse(localStorage.getItem('cached_customers')) || [];
+        const custObj = cachedCusts.find(c => c.name === invoice.client_name);
+        previous = custObj ? custObj.balance : 0;
+    } else {
+        try {
+            const res = await secureFetch(`/api/invoices/${id}`);
+            const data = await res.json();
+            if(!data.success) return;
+            invoice = data.invoice;
+            items = data.items;
+            previous = Number(data.previous_balance ?? data.account?.balance ?? 0) || 0;
+        } catch (e) {
+            console.error("Failed to load invoice for print:", e);
+            return alert("تعذر تحميل الفاتورة للطباعة");
+        }
+    }
 
     const settings = getPrintSettings();
     const pWin = window.open('', '', 'width=450,height=700');
     let itemsHtml = '';
-    data.items.forEach((item, index) => {
-        itemsHtml += `<tr><td>${index + 1}</td><td>${item.item_name}</td><td>${item.unit_type || '—'}</td><td>${item.quantity}</td><td>${item.price.toLocaleString()}</td><td>${item.row_total.toLocaleString()}</td></tr>`;
+    items.forEach((item, index) => {
+        itemsHtml += `<tr><td>${index + 1}</td><td>${item.item_name}</td><td>${unitLabel(item.unit_type)}</td><td>${item.quantity}</td><td>${item.price.toLocaleString()}</td><td>${item.row_total.toLocaleString()}</td></tr>`;
     });
-    const paid = data.invoice.payment_type === 'cash' ? Number(data.invoice.final_amount) || 0 : 0;
-    const previous = Number(data.previous_balance ?? data.account?.balance ?? 0) || 0;
-    const remaining = data.invoice.payment_type === 'cash' ? previous : previous + (Number(data.invoice.final_amount) || 0);
+    const paid = invoice.payment_type === 'cash' ? Number(invoice.final_amount) || 0 : 0;
+    const remaining = invoice.payment_type === 'cash' ? previous : previous + (Number(invoice.final_amount) || 0);
 
     pWin.document.write(`
         <style>
@@ -485,30 +778,32 @@ async function printInvoice(id) {
         <div class="page">
             ${printHeader(settings)}
             <div class="meta">
-                <div class="box"><b>رقم:</b> ${data.invoice.invoice_number}</div>
-                <div class="box"><b>التاريخ:</b> ${new Date(data.invoice.created_at).toLocaleDateString('ar-IQ')}</div>
-                <div class="box"><b>الوقت:</b> ${new Date(data.invoice.created_at).toLocaleTimeString('ar-IQ')}</div>
-                <div class="box"><b>حضرة السيد:</b> ${data.invoice.client_name}</div>
+                <div class="box"><b>رقم:</b> ${invoice.invoice_number}</div>
+                <div class="box"><b>التاريخ:</b> ${new Date(invoice.created_at).toLocaleDateString('ar-IQ')}</div>
+                <div class="box"><b>الوقت:</b> ${new Date(invoice.created_at).toLocaleTimeString('ar-IQ')}</div>
+                <div class="box"><b>حضرة السيد:</b> ${invoice.client_name}</div>
                 <div class="box"><b>المندوب:</b> —</div>
-                <div class="box"><b>نوع الدفع:</b> ${data.invoice.payment_type === 'cash' ? 'نقدي' : 'دين'}</div>
+                <div class="box"><b>نوع الدفع:</b> ${invoice.payment_type === 'cash' ? 'نقدي' : 'دين'}</div>
             </div>
             <table class="items">
                 <thead><tr><th>ت</th><th>المادة</th><th>التعبئة</th><th>الكمية</th><th>سعر المفرد</th><th>المجموع</th></tr></thead>
                 <tbody>${itemsHtml}</tbody>
             </table>
             <div class="summary">
-                <div class="box"><b>مجموع القائمة:</b> ${money(data.invoice.final_amount)}</div>
-                <div class="box"><b>الخصم:</b> ${money(data.invoice.discount)}</div>
+                <div class="box"><b>مجموع القائمة:</b> ${money(invoice.final_amount)}</div>
+                <div class="box"><b>الخصم:</b> ${money(invoice.discount)}</div>
                 <div class="box"><b>الواصل نقداً:</b> ${money(paid)}</div>
                 <div class="box"><b>الرصيد السابق:</b> ${money(previous)}</div>
                 <div class="box"><b>الرصيد المتبقي:</b> ${money(remaining)}</div>
-                <div class="box"><b>الملاحظات:</b> ${data.invoice.notes || '—'}</div>
+                <div class="box"><b>الملاحظات:</b> ${invoice.notes || '—'}</div>
             </div>
             <div class="sign"><span>توقيع المستلم</span><span>صاحب السيارة / المندوب</span><span>الختم والتوقيع</span></div>
         </div>
     `);
     pWin.document.close(); autoPrintWindow(pWin);
-    secureFetch(`/api/invoices/print/${id}`, {method: 'POST'}).then(() => loadInvoices());
+    if (!isLocal) {
+        secureFetch(`/api/invoices/print/${id}`, {method: 'POST'}).then(() => loadInvoices());
+    }
 }
 
 async function submitSupplierPayment() {
@@ -533,51 +828,230 @@ async function loadSupplierPayments() {
 }
 
 async function loadSuppliersList() {
-    const res = await secureFetch('/api/suppliers'); const data = await res.json();
-    const tbody = document.getElementById('suppliers-rows'); tbody.innerHTML = '';
-    const dl = document.getElementById('suppliers-datalist'); dl.innerHTML = '';
-    data.data.forEach(s => {
-        tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${s.name}</strong></td><td>${s.goods_type}</td><td style="color:red; font-weight:bold;">${s.current_debts.toLocaleString()} د.ع</td></tr>`);
-        dl.insertAdjacentHTML('beforeend', `<option value="${s.name}">`);
+    let suppliers = [];
+    try {
+        const res = await secureFetch('/api/suppliers');
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+            suppliers = data.data;
+            localStorage.setItem('cached_suppliers', JSON.stringify(suppliers));
+        }
+    } catch (e) {
+        console.error("Failed to load suppliers from cloud:", e);
+        const cached = localStorage.getItem('cached_suppliers');
+        if (cached) {
+            suppliers = JSON.parse(cached);
+        }
+    }
+
+    const tbody = document.getElementById('suppliers-rows');
+    if (tbody) tbody.innerHTML = '';
+    const dl = document.getElementById('suppliers-datalist');
+    if (dl) dl.innerHTML = '';
+    
+    suppliers.forEach(s => {
+        if (tbody) {
+            tbody.insertAdjacentHTML('beforeend', `<tr><td><strong>${s.name}</strong></td><td>${s.goods_type}</td><td style="color:red; font-weight:bold;">${(s.current_debts || 0).toLocaleString()} د.ع</td></tr>`);
+        }
+        if (dl) {
+            dl.insertAdjacentHTML('beforeend', `<option value="${s.name}">`);
+        }
     });
 }
 
 async function submitPayment() {
-    const client = document.getElementById('pay-client').value;
-    const amount = document.getElementById('pay-amount').value;
-    const notes = document.getElementById('pay-notes').value;
-    const res = await secureFetch('/api/payments', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ client_name: client, amount_paid: amount, notes })
-    });
-    const data = await res.json();
-    alert(data.message);
-    document.getElementById('pay-client').value=''; document.getElementById('pay-amount').value=''; document.getElementById('pay-notes').value='';
+    const client = document.getElementById('pay-client').value.trim();
+    const amount = parseFloat(document.getElementById('pay-amount').value) || 0;
+    const notes = document.getElementById('pay-notes').value.trim();
+    
+    if (!client || amount <= 0) return alert('يرجى تحديد العميل والمبلغ!');
+    
+    const paymentData = { client_name: client, amount_paid: amount, notes: notes };
+    
+    try {
+        if (!navigator.onLine) throw new Error("offline");
+        
+        const res = await secureFetch('/api/payments', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(paymentData)
+        });
+        const data = await res.json();
+        alert(data.message);
+    } catch (e) {
+        console.error("Online payment save failed, saving offline:", e);
+        queueUnsynced('payment', paymentData);
+        alert('تم حفظ وصل القبض محلياً لعدم وجود اتصال بالإنترنت. سيتم مزامنته تلقائياً عند عودة الاتصال.');
+        
+        // Print receipt locally
+        const lastUnsynced = getUnsyncedItems();
+        const localPayment = lastUnsynced[lastUnsynced.length - 1];
+        if (localPayment) {
+            const dateStr = formatDateTime(localPayment.created_at);
+            printPaymentReceipt(client, amount, dateStr, notes);
+        }
+    }
+    
+    document.getElementById('pay-client').value='';
+    document.getElementById('pay-amount').value='';
+    document.getElementById('pay-notes').value='';
     loadPayments();
 }
 
 async function loadPayments() {
-    const res = await secureFetch('/api/payments'); const data = await res.json();
-    const tbody = document.getElementById('payments-rows'); tbody.innerHTML = '';
-    data.data.forEach(p => {
-        const client = safeText(p.client_name);
-        const notes = safeText(p.notes || '—');
-        const date = formatDateTime(p.payment_date);
-        tbody.insertAdjacentHTML('beforeend', `<tr><td>${client}</td><td style="color:green;">${p.amount_paid.toLocaleString()} د.ع</td><td>${date}</td><td>${notes}</td><td><button class="btn-secondary" onclick="printPaymentReceipt('${client}', ${p.amount_paid}, '${date}', '${notes}')">طباعة وصل</button></td></tr>`);
-    });
+    let payments = [];
+    try {
+        const res = await secureFetch('/api/payments');
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+            payments = data.data;
+        }
+    } catch (e) {
+        console.error("Failed to load payments from cloud:", e);
+    }
+    
+    const tbody = document.getElementById('payments-rows'); 
+    if (tbody) {
+        tbody.innerHTML = '';
+        
+        const unsynced = getUnsyncedItems().filter(item => item.type === 'payment');
+        
+        const displayPayments = [
+            ...unsynced.map(item => ({
+                id: item.id,
+                client_name: item.data.client_name + ' (محلي ⏳)',
+                amount_paid: item.data.amount_paid,
+                payment_date: item.created_at,
+                notes: item.data.notes,
+                isLocal: true
+            })),
+            ...payments
+        ];
+        
+        displayPayments.forEach(p => {
+            const client = safeText(p.client_name);
+            const notes = safeText(p.notes || '—');
+            const date = formatDateTime(p.payment_date);
+            const btnDelete = p.isLocal
+                ? `<button class="btn-danger" style="padding: 0.3rem 0.6rem; margin-right: 0.3rem;" onclick="deleteActiveOperationOffline('${p.id}')">❌</button>`
+                : ``;
+                
+            tbody.insertAdjacentHTML('beforeend', `
+                <tr style="${p.isLocal ? 'background-color: #fbf5e6;' : ''}">
+                    <td>${client}</td>
+                    <td style="color:green;">${p.amount_paid.toLocaleString()} د.ع</td>
+                    <td>${date}</td>
+                    <td>${notes}</td>
+                    <td>
+                        <button class="btn-secondary" onclick="printPaymentReceipt('${client}', ${p.amount_paid}, '${date}', '${notes}')">طباعة وصل</button>
+                        ${btnDelete}
+                    </td>
+                </tr>
+            `);
+        });
+    }
 }
 
 async function loadCustomerStatement() {
     const clientName = document.getElementById('pay-client').value.trim();
     if (!clientName) return alert('أدخل اسم الزبون لعرض البيان');
-    const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
-    const data = await res.json();
-    currentStatement = { clientName, account: data.account };
-    document.getElementById('stmt-invoices').innerText = money(data.account.totalInvoices);
-    document.getElementById('stmt-payments').innerText = money(data.account.totalPayments);
-    document.getElementById('stmt-balance').innerText = money(data.account.balance);
-    const tbody = document.getElementById('statement-rows'); tbody.innerHTML = '';
-    data.account.operations.forEach(op => tbody.insertAdjacentHTML('beforeend', `<tr><td>${op.type}</td><td>${op.number}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`));
+    
+    let account = { totalInvoices: 0, totalPayments: 0, balance: 0, operations: [] };
+    
+    try {
+        const res = await secureFetch(`/api/customers/${encodeURIComponent(clientName)}/account`);
+        const data = await res.json();
+        if (data && data.account) {
+            account = data.account;
+            localStorage.setItem(`cached_statement_${clientName}`, JSON.stringify(account));
+        }
+    } catch (e) {
+        console.error("Failed to load customer statement from cloud:", e);
+        const cached = localStorage.getItem(`cached_statement_${clientName}`);
+        if (cached) {
+            account = JSON.parse(cached);
+        } else {
+            const cachedCusts = JSON.parse(localStorage.getItem('cached_customers')) || [];
+            const custObj = cachedCusts.find(c => c.name === clientName);
+            if (custObj) {
+                account.balance = custObj.balance;
+                account.totalPayments = custObj.totalPayments;
+            }
+        }
+    }
+    
+    const unsynced = getUnsyncedItems().filter(item => item.data.client_name === clientName);
+    unsynced.forEach(item => {
+        if (item.type === 'invoice') {
+            const finalAmt = Number(item.data.final_amount) || 0;
+            const isCash = item.data.payment_type === 'cash';
+            
+            account.operations.push({
+                id: item.id,
+                rawType: 'invoice',
+                type: isCash ? 'فاتورة نقدية (محلي ⏳)' : 'فاتورة دين (محلي ⏳)',
+                number: item.data.invoice_number,
+                debit: isCash ? 0 : finalAmt,
+                credit: isCash ? finalAmt : 0,
+                notes: item.data.notes || '',
+                date: item.created_at,
+                isLocal: true
+            });
+            
+            if (!isCash) {
+                account.totalInvoices += finalAmt;
+                account.balance += finalAmt;
+            }
+        } else if (item.type === 'payment') {
+            const paidAmt = Number(item.data.amount_paid) || 0;
+            
+            account.operations.push({
+                id: item.id,
+                rawType: 'payment',
+                type: 'واصل تسديد (محلي ⏳)',
+                number: `PAY-${item.id}`,
+                debit: 0,
+                credit: paidAmt,
+                notes: item.data.notes || '',
+                date: item.created_at,
+                isLocal: true
+            });
+            
+            account.totalPayments += paidAmt;
+            account.balance = Math.max(0, account.balance - paidAmt);
+        }
+    });
+    
+    account.operations.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    currentStatement = { clientName, account };
+    document.getElementById('stmt-invoices').innerText = money(account.totalInvoices);
+    document.getElementById('stmt-payments').innerText = money(account.totalPayments);
+    document.getElementById('stmt-balance').innerText = money(account.balance);
+    
+    const tbody = document.getElementById('statement-rows'); 
+    if (tbody) {
+        tbody.innerHTML = '';
+        const checkAll = document.getElementById('check-all-stmt');
+        if (checkAll) checkAll.checked = true;
+        
+        account.operations.forEach(op => {
+            const btnDelete = op.isLocal
+                ? `<button class="btn-danger" style="padding: 0.1rem 0.3rem; margin-left: 0.3rem;" onclick="event.stopPropagation(); deleteActiveOperationOffline('${op.id}')">❌</button>`
+                : ``;
+                
+            tbody.insertAdjacentHTML('beforeend', `
+                <tr onclick="openOperationDetails('${op.rawType}', '${op.id}')" style="cursor: pointer; ${op.isLocal ? 'background-color: #fbf5e6;' : ''}">
+                    <td><input type="checkbox" class="stmt-check" data-id="${op.id}" checked onclick="event.stopPropagation();"></td>
+                    <td>${op.type} ${btnDelete}</td>
+                    <td>${op.number}</td>
+                    <td>${money(op.debit)}</td>
+                    <td>${money(op.credit)}</td>
+                    <td>${formatDateTime(op.date)}</td>
+                    <td>${op.notes || '—'}</td>
+                </tr>
+            `);
+        });
+    }
 }
 
 async function deleteCustomer() {
@@ -630,12 +1104,30 @@ function printPaymentReceipt(client, amount, date, notes) {
 
 function printCustomerStatement() {
     if (!currentStatement) return alert('اعرض بيان الزبون أولاً');
+    
+    const checkedIds = Array.from(document.querySelectorAll('.stmt-check:checked')).map(cb => cb.getAttribute('data-id'));
+    if (checkedIds.length === 0) return alert('يرجى تحديد عملية واحدة على الأقل للطباعة!');
+    
     const settings = getPrintSettings();
     let runningBalance = 0;
+    let totalPayments = 0;
+    let totalDebts = 0;
+    
     const rows = currentStatement.account.operations.map(op => {
-        runningBalance += (Number(op.debit) || 0) - (Number(op.credit) || 0);
-        return `<tr><td>${money(Math.max(runningBalance, 0))}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${op.type}</td><td>${op.number}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`;
-    }).join('');
+        const isChecked = checkedIds.includes(String(op.id));
+        const debit = Number(op.debit) || 0;
+        const credit = Number(op.credit) || 0;
+        
+        if (isChecked) {
+            runningBalance += debit - credit;
+            totalPayments += credit;
+            totalDebts += debit;
+            return `<tr><td>${money(Math.max(runningBalance, 0))}</td><td>${money(op.debit)}</td><td>${money(op.credit)}</td><td>${op.type}</td><td>${op.number}</td><td>${formatDateTime(op.date)}</td><td>${op.notes || '—'}</td></tr>`;
+        } else {
+            return null;
+        }
+    }).filter(row => row !== null).join('');
+    
     const pWin = window.open('', '', 'width=800,height=700');
     pWin.document.write(`
         <style>
@@ -653,11 +1145,12 @@ function printCustomerStatement() {
         </style>
         <div class="page">
             ${printHeader(settings)}
-            <div class="statement-head"><h2>كشف حساب</h2></div>
+            <div class="statement-head"><h2>كشف حساب مخصص</h2></div>
             <div class="filter">
                 <div class="box"><b>الزبون:</b> ${currentStatement.clientName}</div>
-                <div class="box"><b>إجمالي الواصل:</b> ${money(currentStatement.account.totalPayments)}</div>
-                <div class="box"><b>المتبقي:</b> ${money(currentStatement.account.balance)}</div>
+                <div class="box"><b>المطلوب للمحدد:</b> ${money(totalDebts)}</div>
+                <div class="box"><b>الواصل للمحدد:</b> ${money(totalPayments)}</div>
+                <div class="box" style="grid-column: 1 / 4;"><b>المتبقي الكلي في الحساب السحابي:</b> ${money(currentStatement.account.balance)}</div>
             </div>
             <table>
                 <thead><tr><th>الرصيد</th><th>مدين</th><th>دائن</th><th>النوع</th><th>الرقم</th><th>التاريخ</th><th>ملاحظات</th></tr></thead>
@@ -666,6 +1159,10 @@ function printCustomerStatement() {
         </div>
     `);
     pWin.document.close(); autoPrintWindow(pWin);
+}
+
+function toggleCheckAllStatement(master) {
+    document.querySelectorAll('.stmt-check').forEach(cb => cb.checked = master.checked);
 }
 
 async function loadProducts() {
@@ -695,9 +1192,40 @@ async function addSupplier() {
 }
 
 async function loadReports() {
-    const res = await secureFetch('/api/reports'); const data = await res.json();
-    document.getElementById('rep-sales').innerText = data.reports.totalSales.toLocaleString() + " د.ع";
-    document.getElementById('rep-debts').innerText = data.reports.totalDebts.toLocaleString() + " د.ع";
+    let reports = { totalSales: 0, totalDebts: 0 };
+    try {
+        const res = await secureFetch('/api/reports');
+        const data = await res.json();
+        if (data && data.reports) {
+            reports = data.reports;
+            localStorage.setItem('cached_reports', JSON.stringify(reports));
+        }
+    } catch (e) {
+        console.error("Failed to load reports from cloud:", e);
+        const cached = localStorage.getItem('cached_reports');
+        if (cached) {
+            reports = JSON.parse(cached);
+        }
+    }
+    
+    const unsynced = getUnsyncedItems();
+    unsynced.forEach(item => {
+        if (item.type === 'invoice') {
+            const finalAmt = Number(item.data.final_amount) || 0;
+            reports.totalSales += finalAmt;
+            if (item.data.payment_type !== 'cash') {
+                reports.totalDebts += finalAmt;
+            }
+        } else if (item.type === 'payment') {
+            const paidAmt = Number(item.data.amount_paid) || 0;
+            reports.totalDebts = Math.max(0, reports.totalDebts - paidAmt);
+        }
+    });
+    
+    const salesEl = document.getElementById('rep-sales');
+    if (salesEl) salesEl.innerText = reports.totalSales.toLocaleString() + " د.ع";
+    const debtsEl = document.getElementById('rep-debts');
+    if (debtsEl) debtsEl.innerText = reports.totalDebts.toLocaleString() + " د.ع";
 }
 
 function generatePairCode() {
@@ -725,9 +1253,16 @@ function downloadBackup() {
 
 function autoPrintWindow(pWin) {
     if (!pWin) return alert('تعذر فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.');
+    const html = '<!DOCTYPE html>' + pWin.document.documentElement.outerHTML;
+    if (window.smartMaktabDesktop?.silentPrint) {
+        window.smartMaktabDesktop.silentPrint(html).then(result => {
+            if (!result?.success) alert('تعذرت الطباعة المباشرة. تأكد من وجود طابعة افتراضية متصلة.');
+            pWin.close();
+        });
+        return;
+    }
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     if (isMobile) {
-        const html = '<!DOCTYPE html>' + pWin.document.documentElement.outerHTML;
         const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -824,7 +1359,638 @@ async function importBackup() {
     });
     const data = await res.json();
     alert(data.success ? 'تم رفع البيانات السابقة بنجاح' : 'فشل رفع البيانات');
-    fetchGlobalProducts(); loadSuppliersList(); loadInvoices(); loadPayments();
+}
+
+let activeModalOperation = null;
+
+// 🔄 وظائف المزامنة والعمل دون اتصال (Offline & Sync)
+
+function updateSyncStatusUI() {
+    const badge = document.getElementById('sync-status-badge');
+    if (!badge) return;
+    
+    const unsynced = getUnsyncedItems();
+    const isOnline = navigator.onLine;
+    
+    if (unsynced.length > 0) {
+        badge.className = 'sync-badge syncing';
+        badge.querySelector('.sync-text').innerText = `معلق: ${unsynced.length} عمليات`;
+        badge.querySelector('.sync-dot').innerText = '⏳';
+    } else if (isOnline) {
+        badge.className = 'sync-badge online';
+        badge.querySelector('.sync-text').innerText = 'متصل بالسحاب';
+        badge.querySelector('.sync-dot').innerText = '●';
+    } else {
+        badge.className = 'sync-badge offline';
+        badge.querySelector('.sync-text').innerText = 'دون اتصال بالإنترنت';
+        badge.querySelector('.sync-dot').innerText = '✕';
+    }
+}
+
+function getUnsyncedItems() {
+    try {
+        return JSON.parse(localStorage.getItem('unsynced_items')) || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveUnsyncedItems(items) {
+    localStorage.setItem('unsynced_items', JSON.stringify(items));
+    updateSyncStatusUI();
+}
+
+function deleteActiveOperationOffline(id) {
+    if(!confirm('هل تريد حذف هذه العملية المعلقة محلياً؟')) return;
+    const queue = getUnsyncedItems();
+    const filtered = queue.filter(item => item.id !== id);
+    saveUnsyncedItems(filtered);
+    alert('تم حذف العملية المعلقة محلياً بنجاح.');
+    loadInvoices();
+    loadPayments();
+    loadReports();
+    
+    const payClientInput = document.getElementById('pay-client');
+    if (payClientInput && payClientInput.value.trim()) {
+        loadCustomerStatement();
+    }
+}
+
+function queueUnsynced(type, data) {
+    const items = getUnsyncedItems();
+    const localId = 'local-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    
+    let localItem = {
+        id: localId,
+        isLocal: true,
+        type: type,
+        data: data,
+        created_at: new Date().toISOString()
+    };
+    
+    items.push(localItem);
+    saveUnsyncedItems(items);
+    
+    // Trigger list refreshes to reflect local entries
+    if (type === 'invoice') {
+        if (typeof loadInvoices === 'function') loadInvoices();
+    } else if (type === 'payment') {
+        if (typeof loadPayments === 'function') loadPayments();
+    }
+    if (typeof loadCustomers === 'function') loadCustomers();
+    if (typeof loadReports === 'function') loadReports();
+}
+
+let isSyncingNow = false;
+async function syncUnsyncedData() {
+    if (isSyncingNow || !navigator.onLine) return;
+    
+    const items = getUnsyncedItems();
+    if (items.length === 0) {
+        updateSyncStatusUI();
+        return;
+    }
+    
+    isSyncingNow = true;
+    updateSyncStatusUI();
+    
+    let successCount = 0;
+    const remainingItems = [];
+    
+    for (const item of items) {
+        try {
+            let res;
+            if (item.type === 'invoice') {
+                res = await fetch('/api/invoices', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(item.data)
+                });
+            } else if (item.type === 'payment') {
+                res = await fetch('/api/payments', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        client_name: item.data.client_name,
+                        amount_paid: item.data.amount_paid,
+                        notes: item.data.notes
+                    })
+                });
+            }
+            
+            const data = await res.json();
+            if (data && data.success) {
+                successCount++;
+            } else {
+                remainingItems.push(item);
+            }
+        } catch (e) {
+            remainingItems.push(item);
+            const index = items.indexOf(item);
+            if (index !== -1) {
+                remainingItems.push(...items.slice(index + 1));
+            }
+            break;
+        }
+    }
+    
+    saveUnsyncedItems(remainingItems);
+    isSyncingNow = false;
+    updateSyncStatusUI();
+    
+    if (successCount > 0) {
+        console.log(`Synced ${successCount} operations successfully!`);
+        fetchGlobalProducts();
+        loadCustomers();
+        loadInvoices();
+        loadPayments();
+        loadReports();
+        
+        const payClientInput = document.getElementById('pay-client');
+        if (payClientInput && payClientInput.value.trim()) {
+            loadCustomerStatement();
+        }
+    }
+}
+
+// 🗂️ وظائف النافذة المنبثقة للتفاصيل والتعديل (Modal Functions)
+
+async function openOperationDetails(rawType, id) {
+    document.getElementById('operation-modal').classList.add('show');
+    const contentDiv = document.getElementById('modal-content');
+    contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">جاري تحميل التفاصيل...</div>';
+    
+    try {
+        if (rawType === 'invoice') {
+            if (String(id).startsWith('local-')) {
+                const localItem = getUnsyncedItems().find(item => item.id === id);
+                if (!localItem) throw new Error('تعذر تحميل بيانات الفاتورة المحلية');
+                activeModalOperation = { 
+                    rawType, 
+                    id, 
+                    invoice: { 
+                        invoice_number: localItem.data.invoice_number,
+                        client_name: localItem.data.client_name,
+                        payment_type: localItem.data.payment_type,
+                        total_amount: localItem.data.total_amount,
+                        discount: localItem.data.discount,
+                        final_amount: localItem.data.final_amount,
+                        notes: localItem.data.notes,
+                        device_type: localItem.data.device_type,
+                        created_at: localItem.created_at
+                    }, 
+                    items: localItem.data.items,
+                    isLocal: true 
+                };
+                renderInvoiceDetails();
+            } else {
+                const res = await secureFetch(`/api/invoices/${id}`);
+                const data = await res.json();
+                if (!data.success || !data.invoice) throw new Error('تعذر تحميل بيانات الفاتورة');
+                activeModalOperation = { rawType, id, invoice: data.invoice, items: data.items, account: data.account };
+                renderInvoiceDetails();
+            }
+        } else if (rawType === 'payment') {
+            if (String(id).startsWith('local-')) {
+                const localItem = getUnsyncedItems().find(item => item.id === id);
+                if (!localItem) throw new Error('تعذر تحميل بيانات الوصل المحلي');
+                activeModalOperation = {
+                    rawType,
+                    id,
+                    payment: {
+                        client_name: localItem.data.client_name,
+                        amount_paid: localItem.data.amount_paid,
+                        notes: localItem.data.notes,
+                        payment_date: localItem.created_at
+                    },
+                    isLocal: true
+                };
+                renderPaymentDetails();
+            } else {
+                const res = await secureFetch(`/api/payments/${id}`);
+                const data = await res.json();
+                if (!data.success || !data.payment) throw new Error('تعذر تحميل بيانات الوصل');
+                activeModalOperation = { rawType, id, payment: data.payment };
+                renderPaymentDetails();
+            }
+        }
+    } catch (err) {
+        contentDiv.innerHTML = `<div style="color:red; text-align:center; padding:20px;">${err.message}</div>`;
+    }
+}
+
+function closeOperationModal() {
+    document.getElementById('operation-modal').classList.remove('show');
+    activeModalOperation = null;
+}
+
+function renderInvoiceDetails() {
+    const op = activeModalOperation;
+    const inv = op.invoice;
+    const items = op.items || [];
+    const contentDiv = document.getElementById('modal-content');
+    
+    let itemsRows = '';
+    items.forEach((item, index) => {
+        itemsRows += `
+            <tr>
+                <td>${index + 1}</td>
+                <td><strong>${item.name || item.item_name}</strong></td>
+                <td>${unitLabel(item.unit || item.unit_type)}</td>
+                <td>${item.qty || item.quantity}</td>
+                <td>${money(item.price)}</td>
+                <td>${money(item.total || item.row_total)}</td>
+            </tr>
+        `;
+    });
+    
+    const isLocalBadge = op.isLocal ? '<span class="unsynced-indicator">معلق محلياً</span>' : '';
+    
+    contentDiv.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <span class="badge badge-invoice">${inv.payment_type === 'cash' ? 'فاتورة نقدية 💵' : 'فاتورة دين ⚠️'} ${isLocalBadge}</span>
+            <span style="color:var(--text-muted); font-size:0.9rem;">${formatDateTime(inv.created_at)}</span>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border-color);">
+            <div class="detail-row"><span>رقم الفاتورة:</span><span>#${inv.invoice_number}</span></div>
+            <div class="detail-row"><span>اسم الزبون:</span><span>${inv.client_name}</span></div>
+            <div class="detail-row"><span>نوع الدفع:</span><span>${inv.payment_type === 'cash' ? 'نقدي' : 'دين'}</span></div>
+            <div class="detail-row"><span>جهاز الإدخال:</span><span>${inv.device_type || '—'}</span></div>
+            <div class="detail-row"><span>المبلغ الإجمالي:</span><span>${money(inv.total_amount)}</span></div>
+            <div class="detail-row"><span>الخصم:</span><span>${money(inv.discount)}</span></div>
+            <div class="detail-row" style="grid-column: 1 / 3; border-bottom: none; padding-bottom: 0; margin-bottom: 0;"><span>المبلغ النهائي:</span><span style="color:var(--accent-color); font-size:1.15rem; font-weight:bold;">${money(inv.final_amount)}</span></div>
+            <div class="detail-row" style="grid-column: 1 / 3; border-top: 1px dashed var(--border-color); margin-top: 8px; padding-top: 8px; border-bottom: none;"><span>ملاحظات:</span><span>${inv.notes || '—'}</span></div>
+        </div>
+        
+        <h4 style="margin-top:15px; border-right:4px solid var(--accent-color); padding-right:8px; color:var(--primary-color);">تفاصيل المواد</h4>
+        <table class="modal-items-table" style="width:100%; border-collapse:collapse; margin-top:8px;">
+            <thead>
+                <tr>
+                    <th style="width:40px;">ت</th>
+                    <th>المادة</th>
+                    <th>التعبئة</th>
+                    <th>الكمية</th>
+                    <th>سعر المفرد</th>
+                    <th>المجموع</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${itemsRows || '<tr><td colspan="6" style="text-align:center;">لا توجد مواد</td></tr>'}
+            </tbody>
+        </table>
+    `;
+    
+    const actionsDiv = document.getElementById('modal-actions');
+    actionsDiv.innerHTML = `
+        <button class="btn-danger" style="margin-inline-end:auto;" onclick="deleteActiveOperation()">حذف الفاتورة ❌</button>
+        <button class="btn-primary" onclick="editActiveOperation()">تعديل الفاتورة ✏️</button>
+        <button class="btn-secondary" onclick="closeOperationModal()">إغلاق</button>
+    `;
+}
+
+function renderPaymentDetails() {
+    const op = activeModalOperation;
+    const pay = op.payment;
+    const contentDiv = document.getElementById('modal-content');
+    const isLocalBadge = op.isLocal ? '<span class="unsynced-indicator">معلق محلياً</span>' : '';
+    
+    contentDiv.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <span class="badge badge-payment">وصل تسديد 💵 ${isLocalBadge}</span>
+            <span style="color:var(--text-muted); font-size:0.9rem;">${formatDateTime(pay.payment_date || pay.created_at)}</span>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr; gap:12px; margin-bottom:20px; background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border-color);">
+            <div class="detail-row"><span>اسم العميل:</span><span>${pay.client_name}</span></div>
+            <div class="detail-row"><span>المبلغ الواصل:</span><span style="color:#15803d; font-size:1.25rem; font-weight:bold;">${money(pay.amount_paid)}</span></div>
+            <div class="detail-row" style="border-bottom:none; padding-bottom:0; margin-bottom:0;"><span>ملاحظات التنزيل:</span><span>${pay.notes || '—'}</span></div>
+        </div>
+    `;
+    
+    const actionsDiv = document.getElementById('modal-actions');
+    actionsDiv.innerHTML = `
+        <button class="btn-danger" style="margin-inline-end:auto;" onclick="deleteActiveOperation()">حذف الوصل ❌</button>
+        <button class="btn-primary" onclick="editActiveOperation()">تعديل الحركة ✏️</button>
+        <button class="btn-secondary" onclick="closeOperationModal()">إغلاق</button>
+    `;
+}
+
+function editActiveOperation() {
+    const op = activeModalOperation;
+    const contentDiv = document.getElementById('modal-content');
+    const actionsDiv = document.getElementById('modal-actions');
+    
+    if (op.rawType === 'payment') {
+        const pay = op.payment;
+        contentDiv.innerHTML = `
+            <div class="modal-edit-fields" style="display:grid; gap:12px;">
+                <div>
+                    <label>اسم العميل / المحل:</label>
+                    <input type="text" id="edit-pay-client" value="${safeText(pay.client_name)}">
+                </div>
+                <div>
+                    <label>المبلغ المستلم نقداً (د.ع):</label>
+                    <input type="number" id="edit-pay-amount" value="${pay.amount_paid}">
+                </div>
+                <div>
+                    <label>ملاحظة التسديد:</label>
+                    <input type="text" id="edit-pay-notes" value="${safeText(pay.notes || '')}">
+                </div>
+            </div>
+        `;
+        
+        actionsDiv.innerHTML = `
+            <button class="btn-success" onclick="savePaymentChanges()">حفظ التعديلات ✅</button>
+            <button class="btn-secondary" onclick="renderPaymentDetails()">إلغاء</button>
+        `;
+    } else if (op.rawType === 'invoice') {
+        const inv = op.invoice;
+        const items = op.items || [];
+        
+        let itemsRows = '';
+        items.forEach((item, index) => {
+            const name = item.name || item.item_name;
+            const unit = item.unit || item.unit_type;
+            const qty = item.qty || item.quantity;
+            const price = item.price;
+            const total = item.total || item.row_total;
+            
+            itemsRows += `
+                <tr class="edit-item-row" id="modal-item-${index}">
+                    <td><input type="text" class="edit-item-name" list="products-datalist" value="${safeText(name)}" placeholder="المادة..." style="width:100%;"></td>
+                    <td>
+                        <select class="edit-item-unit" style="padding:6px;">
+                            <option value="box" ${unit === 'box' ? 'selected' : ''}>كارتون</option>
+                            <option value="piece" ${unit === 'piece' ? 'selected' : ''}>قطعة</option>
+                        </select>
+                    </td>
+                    <td><input type="number" class="edit-item-qty" value="${qty}" style="width:80px;" oninput="calculateModalInvoiceTotal()"></td>
+                    <td><input type="number" class="edit-item-price" value="${price}" style="width:100px;" oninput="calculateModalInvoiceTotal()"></td>
+                    <td><span class="edit-item-total">${total.toLocaleString()}</span> د.ع</td>
+                    <td><button onclick="document.getElementById('modal-item-${index}').remove(); calculateModalInvoiceTotal();" style="color:red; background:none; border:none; cursor:pointer;">❌</button></td>
+                </tr>
+            `;
+        });
+        
+        contentDiv.innerHTML = `
+            <div class="modal-edit-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:15px;">
+                <div>
+                    <label>رقم الفاتورة:</label>
+                    <input type="text" id="edit-inv-number" value="${safeText(inv.invoice_number)}">
+                </div>
+                <div>
+                    <label>اسم العميل / المحل:</label>
+                    <input type="text" id="edit-inv-client" value="${safeText(inv.client_name)}">
+                </div>
+                <div>
+                    <label>نوع الدفع:</label>
+                    <select id="edit-inv-payment" onchange="calculateModalInvoiceTotal()">
+                        <option value="cash" ${inv.payment_type === 'cash' ? 'selected' : ''}>نقدي (واصل كامل)</option>
+                        <option value="debt" ${inv.payment_type === 'debt' ? 'selected' : ''}>دين على الحساب</option>
+                    </select>
+                </div>
+                <div>
+                    <label>خصم القائمة:</label>
+                    <input type="number" id="edit-inv-discount" value="${inv.discount || 0}" oninput="calculateModalInvoiceTotal()">
+                </div>
+                <div style="grid-column: 1 / 3;">
+                    <label>ملاحظات القائمة:</label>
+                    <input type="text" id="edit-inv-notes" value="${safeText(inv.notes || '')}">
+                </div>
+            </div>
+            
+            <h4 style="margin-top:15px; display:flex; justify-content:space-between; align-items:center; border-right:4px solid var(--accent-color); padding-right:8px; color:var(--primary-color);">
+                <span>تعديل مواد الفاتورة</span>
+                <button class="btn-primary" style="padding:4px 10px; font-size:0.8rem;" onclick="addModalInvoiceRow()">مادة جديدة +</button>
+            </h4>
+            <div style="overflow-x:auto;">
+                <table class="modal-items-table" style="width:100%; border-collapse:collapse; margin-top:8px;">
+                    <thead>
+                        <tr>
+                            <th>المادة</th>
+                            <th style="width:100px;">التعبئة</th>
+                            <th style="width:90px;">الكمية</th>
+                            <th style="width:110px;">سعر المفرد</th>
+                            <th style="width:110px;">المجموع</th>
+                            <th style="width:40px;">حذف</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modal-invoice-items-rows">
+                        ${itemsRows}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="margin-top:15px; padding:12px; background:#f0ebf7; border-radius:8px; display:flex; justify-content:space-between; align-items:center; font-weight:bold;">
+                <span>المجموع النهائي:</span>
+                <span id="modal-invoice-final-total" style="color:var(--accent-color); font-size:1.2rem;">${money(inv.final_amount)}</span>
+            </div>
+        `;
+        
+        actionsDiv.innerHTML = `
+            <button class="btn-success" onclick="saveInvoiceChanges()">حفظ التعديلات ✅</button>
+            <button class="btn-secondary" onclick="renderInvoiceDetails()">إلغاء</button>
+        `;
+    }
+}
+
+function addModalInvoiceRow() {
+    const tbody = document.getElementById('modal-invoice-items-rows');
+    const id = Date.now();
+    tbody.insertAdjacentHTML('beforeend', `
+        <tr class="edit-item-row" id="modal-row-${id}">
+            <td><input type="text" class="edit-item-name" list="products-datalist" placeholder="المادة..." style="width:100%;"></td>
+            <td>
+                <select class="edit-item-unit" style="padding:6px;">
+                    <option value="box">كارتون</option>
+                    <option value="piece" selected>قطعة</option>
+                </select>
+            </td>
+            <td><input type="number" class="edit-item-qty" value="1" style="width:80px;" oninput="calculateModalInvoiceTotal()"></td>
+            <td><input type="number" class="edit-item-price" value="0" style="width:100px;" oninput="calculateModalInvoiceTotal()"></td>
+            <td><span class="edit-item-total">0</span> د.ع</td>
+            <td><button onclick="document.getElementById('modal-row-${id}').remove(); calculateModalInvoiceTotal();" style="color:red; background:none; border:none; cursor:pointer;">❌</button></td>
+        </tr>
+    `);
+}
+
+function calculateModalInvoiceTotal() {
+    let sub = 0;
+    document.querySelectorAll('.edit-item-row').forEach(row => {
+        const qty = parseFloat(row.querySelector('.edit-item-qty').value) || 0;
+        const price = parseFloat(row.querySelector('.edit-item-price').value) || 0;
+        const total = qty * price;
+        row.querySelector('.edit-item-total').innerText = total.toLocaleString();
+        sub += total;
+    });
+    const disc = parseFloat(document.getElementById('edit-inv-discount').value) || 0;
+    const finalTotal = Math.max(0, sub - disc);
+    document.getElementById('modal-invoice-final-total').innerText = money(finalTotal);
+}
+
+async function savePaymentChanges() {
+    const op = activeModalOperation;
+    const client = document.getElementById('edit-pay-client').value.trim();
+    const amount = parseFloat(document.getElementById('edit-pay-amount').value) || 0;
+    const notes = document.getElementById('edit-pay-notes').value.trim();
+    
+    if (!client || amount <= 0) return alert('يرجى ملء اسم العميل والمبلغ بشكل صحيح!');
+    
+    if (op.isLocal) {
+        const items = getUnsyncedItems();
+        const localItem = items.find(item => item.id === op.id);
+        if (localItem) {
+            localItem.data.client_name = client;
+            localItem.data.amount_paid = amount;
+            localItem.data.notes = notes;
+            saveUnsyncedItems(items);
+            alert('تم تعديل الوصل المحلي بنجاح.');
+            closeOperationModal();
+            loadCustomerStatement();
+            loadPayments();
+            loadReports();
+        }
+        return;
+    }
+    
+    const res = await secureFetch(`/api/payments/${op.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ client_name: client, amount_paid: amount, notes })
+    });
+    const data = await res.json();
+    alert(data.message);
+    if (data.success) {
+        closeOperationModal();
+        loadCustomerStatement();
+        loadPayments();
+        loadReports();
+    }
+}
+
+async function saveInvoiceChanges() {
+    const op = activeModalOperation;
+    const invNum = document.getElementById('edit-inv-number').value.trim();
+    const clientName = document.getElementById('edit-inv-client').value.trim();
+    const payType = document.getElementById('edit-inv-payment').value;
+    const discount = parseFloat(document.getElementById('edit-inv-discount').value) || 0;
+    const notes = document.getElementById('edit-inv-notes').value.trim();
+    
+    let items = [];
+    let isValid = true;
+    document.querySelectorAll('.edit-item-row').forEach(row => {
+        const name = row.querySelector('.edit-item-name').value.trim();
+        const unit = row.querySelector('.edit-item-unit').value;
+        const qty = parseInt(row.querySelector('.edit-item-qty').value) || 0;
+        const price = parseFloat(row.querySelector('.edit-item-price').value) || 0;
+        
+        if (!name) return;
+        if (qty <= 0 || price < 0) {
+            isValid = false;
+            return;
+        }
+        
+        items.push({
+            name,
+            unit,
+            qty,
+            price,
+            total: qty * price
+        });
+    });
+    
+    if (!isValid) return alert('يرجى التأكد من تعبئة الكميات والأسعار بشكل صحيح لكافة المواد!');
+    if (items.length === 0 || !clientName || !invNum) return alert('يرجى إدخال اسم العميل ورقم الفاتورة ومادة واحدة على الأقل!');
+    
+    let sub = items.reduce((a, b) => a + b.total, 0);
+    const finalAmount = sub - discount;
+    
+    if (op.isLocal) {
+        const queue = getUnsyncedItems();
+        const localItem = queue.find(item => item.id === op.id);
+        if (localItem) {
+            localItem.data.invoice_number = invNum;
+            localItem.data.client_name = clientName;
+            localItem.data.payment_type = payType;
+            localItem.data.discount = discount;
+            localItem.data.total_amount = sub;
+            localItem.data.final_amount = finalAmount;
+            localItem.data.notes = notes;
+            localItem.data.items = items;
+            saveUnsyncedItems(queue);
+            alert('تم تعديل الفاتورة المحلية بنجاح.');
+            closeOperationModal();
+            loadCustomerStatement();
+            loadInvoices();
+            loadReports();
+        }
+        return;
+    }
+    
+    const res = await secureFetch(`/api/invoices/${op.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            invoice_number: invNum,
+            client_name: clientName,
+            total_amount: sub,
+            discount: discount,
+            final_amount: finalAmount,
+            payment_type: payType,
+            notes: notes,
+            device_type: op.invoice.device_type,
+            items: items
+        })
+    });
+    
+    const data = await res.json();
+    alert(data.message);
+    if (data.success) {
+        closeOperationModal();
+        loadCustomerStatement();
+        loadInvoices();
+        loadReports();
+    }
+}
+
+async function deleteActiveOperation() {
+    const op = activeModalOperation;
+    if (!op) return;
+    
+    const confirmMsg = op.rawType === 'invoice' 
+        ? 'هل تريد حذف هذه الفاتورة وكل تفاصيل موادها؟' 
+        : 'هل تريد حذف هذا الوصل؟';
+        
+    if (!confirm(confirmMsg)) return;
+    
+    if (op.isLocal) {
+        const queue = getUnsyncedItems();
+        const filtered = queue.filter(item => item.id !== op.id);
+        saveUnsyncedItems(filtered);
+        alert('تم حذف العملية المحلية المعلقة.');
+        closeOperationModal();
+        loadCustomerStatement();
+        if (op.rawType === 'invoice') loadInvoices();
+        else loadPayments();
+        loadReports();
+        return;
+    }
+    
+    const url = op.rawType === 'invoice' 
+        ? `/api/invoices/${op.id}` 
+        : `/api/payments/${op.id}`;
+        
+    const res = await secureFetch(url, { method: 'DELETE' });
+    const data = await res.json();
+    alert(data.message || (data.success ? 'تم الحذف' : 'فشل الحذف'));
+    if (data.success) {
+        closeOperationModal();
+        loadCustomerStatement();
+        if (op.rawType === 'invoice') loadInvoices();
+        else loadPayments();
+        loadReports();
+    }
 }
 
 window.onload = () => {
@@ -832,6 +1998,29 @@ window.onload = () => {
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app-container').style.display = 'block';
         initializeApp();
+    }
+    
+    updateSyncStatusUI();
+    
+    window.addEventListener('online', () => {
+        console.log("Internet is back online! Syncing...");
+        syncUnsyncedData();
+    });
+    window.addEventListener('offline', () => {
+        console.log("Internet went offline.");
+        updateSyncStatusUI();
+    });
+    
+    setInterval(() => {
+        if (navigator.onLine) {
+            syncUnsyncedData();
+        } else {
+            updateSyncStatusUI();
+        }
+    }, 15000);
+    
+    if (navigator.onLine) {
+        syncUnsyncedData();
     }
 };
 </script>
