@@ -16,7 +16,7 @@
     "appId": "com.smartmaktab.desktop",
     "productName": "Smart Maktab OS",
     "directories": {
-      "output": "dist-build"
+      "output": ".build-out"
     },
     "electronDist": "node_modules/electron/dist",
     "files": [
